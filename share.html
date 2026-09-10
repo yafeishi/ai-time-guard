@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Time Guard - 分享我的 AI 使用报告</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d2e;
+    --border: #2a2d3e;
+    --text: #e1e4ed;
+    --text2: #8b8fa3;
+    --text3: #6b6f83;
+    --accent: #6c5ce7;
+    --accent2: #a29bfe;
+    --green: #00b894;
+    --red: #ff6b6b;
+    --orange: #fdcb6e;
+    --blue: #74b9ff;
+    --shadow: rgba(0,0,0,0.3);
+  }
+  [data-theme="tencent-blue"] {
+    --bg: #f5f7fa;
+    --card: #ffffff;
+    --border: #e5e7eb;
+    --text: #333333;
+    --text2: #666666;
+    --text3: #999999;
+    --accent: #0052D9;
+    --accent2: #0066FF;
+    --green: #0ABF5B;
+    --red: #E54545;
+    --orange: #FF9C00;
+    --blue: #0052D9;
+    --shadow: rgba(0,0,0,0.08);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+  }
+
+  .page-header { text-align: center; margin-bottom: 24px; max-width: 600px; }
+  .page-header h1 { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
+  .page-header p { color: var(--text2); font-size: 14px; line-height: 1.6; }
+
+  /* 时间范围选择器 */
+  .range-selector {
+    width: 420px;
+    margin-bottom: 24px;
+  }
+  .range-selector-title {
+    font-size: 13px;
+    color: var(--text2);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .range-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .range-btn {
+    padding: 7px 14px;
+    border-radius: 18px;
+    font-size: 13px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text2);
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .range-btn.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .range-btn:hover:not(.active) {
+    border-color: var(--accent);
+    color: var(--text);
+  }
+  .range-custom {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .range-custom label {
+    font-size: 12px;
+    color: var(--text3);
+    flex-shrink: 0;
+  }
+  .date-input {
+    flex: 1;
+    padding: 7px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text);
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .date-input:focus { border-color: var(--accent); }
+  .date-input::-webkit-calendar-picker-indicator {
+    filter: invert(0.5);
+    cursor: pointer;
+  }
+  [data-theme="tencent-blue"] .date-input::-webkit-calendar-picker-indicator {
+    filter: none;
+  }
+  .range-info {
+    font-size: 12px;
+    color: var(--accent);
+    margin-top: 8px;
+    min-height: 18px;
+    transition: opacity 0.3s;
+  }
+
+  /* 分享卡片 */
+  .share-card-wrapper { position: relative; margin-bottom: 32px; }
+  .share-card {
+    width: 420px;
+    background: var(--card);
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: 0 8px 40px var(--shadow);
+    border: 1px solid var(--border);
+  }
+  .card-header {
+    background: linear-gradient(135deg, #6c5ce7, #a29bfe, #74b9ff);
+    padding: 28px 24px 22px;
+    position: relative;
+    overflow: hidden;
+  }
+  [data-theme="tencent-blue"] .card-header {
+    background: linear-gradient(135deg, #0052D9, #0066FF, #3399FF);
+  }
+  .card-header::before {
+    content: '';
+    position: absolute;
+    top: -30%; right: -20%;
+    width: 200px; height: 200px;
+    background: radial-gradient(circle, rgba(255,255,255,0.15), transparent 70%);
+    border-radius: 50%;
+  }
+  .card-header::after {
+    content: '';
+    position: absolute;
+    bottom: -40%; left: -10%;
+    width: 150px; height: 150px;
+    background: radial-gradient(circle, rgba(255,255,255,0.1), transparent 70%);
+    border-radius: 50%;
+  }
+  .card-header-inner { position: relative; z-index: 1; }
+  .card-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+  .card-brand-icon { font-size: 26px; }
+  .card-brand-text { font-size: 16px; font-weight: 600; color: #fff; letter-spacing: 0.5px; }
+  .card-brand-sub { font-size: 11px; color: rgba(255,255,255,0.7); margin-top: 2px; }
+  .card-hero { text-align: center; padding: 8px 0; }
+  .card-hero-label {
+    font-size: 12px; color: rgba(255,255,255,0.8);
+    letter-spacing: 1px; margin-bottom: 6px;
+  }
+  .card-hero-value {
+    font-size: 48px; font-weight: 800; color: #fff;
+    letter-spacing: -2px; font-variant-numeric: tabular-nums;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.2);
+  }
+  .card-hero-unit { font-size: 14px; color: rgba(255,255,255,0.85); margin-top: 4px; }
+
+  .card-body { padding: 20px 24px; }
+
+  .card-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .card-stat { background: var(--bg); border-radius: 12px; padding: 14px; text-align: center; }
+  .card-stat-label { font-size: 11px; color: var(--text3); margin-bottom: 6px; letter-spacing: 0.3px; }
+  .card-stat-value { font-size: 20px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+  .card-stat-sub { font-size: 11px; color: var(--text2); margin-top: 2px; }
+
+  /* 单日模式下用 3 列 */
+  .card-stats.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+
+  .card-tools { margin-bottom: 20px; }
+  .card-tools-title { font-size: 12px; color: var(--text3); margin-bottom: 10px; letter-spacing: 0.3px; }
+  .card-tool-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .card-tool-name { font-size: 12px; color: var(--text2); width: 90px; text-align: right; flex-shrink: 0; }
+  .card-tool-bar-bg { flex: 1; height: 16px; background: var(--bg); border-radius: 8px; overflow: hidden; }
+  .card-tool-bar-fill { height: 100%; border-radius: 8px; transition: width 0.6s ease; min-width: 4px; }
+  .card-tool-time { font-size: 12px; font-weight: 600; color: var(--text); width: 55px; font-variant-numeric: tabular-nums; }
+
+  .card-mini-chart { margin-bottom: 20px; }
+  .card-mini-chart-title { font-size: 12px; color: var(--text3); margin-bottom: 10px; letter-spacing: 0.3px; }
+  .mini-bars { display: flex; align-items: flex-end; gap: 6px; height: 60px; }
+  .mini-bar-group { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
+  .mini-bar { width: 100%; border-radius: 4px 4px 1px 1px; min-height: 3px; transition: height 0.4s ease; }
+  .mini-bar.accent { background: linear-gradient(180deg, var(--accent2), var(--accent)); }
+  .mini-bar.normal { background: var(--border); }
+  .mini-bar.over { background: linear-gradient(180deg, var(--red), #ff4444); }
+  .mini-bar-label { font-size: 10px; color: var(--text3); margin-top: 4px; }
+
+  .card-footer {
+    padding: 16px 24px;
+    border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .card-footer-slogan { font-size: 12px; color: var(--text3); font-style: italic; }
+  .card-footer-date { font-size: 11px; color: var(--text3); font-variant-numeric: tabular-nums; }
+
+  .rank-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; margin-top: 6px;
+  }
+  .rank-badge.rank-green { background: rgba(0,184,148,0.15); color: #00b894; }
+  .rank-badge.rank-blue { background: rgba(108,92,231,0.15); color: #a29bfe; }
+  .rank-badge.rank-orange { background: rgba(253,203,110,0.15); color: #fdcb6e; }
+  .rank-badge.rank-red { background: rgba(255,107,107,0.15); color: #ff6b6b; }
+  .rank-badge.rank-purple { background: rgba(162,155,254,0.15); color: #a29bfe; }
+
+  .actions { display: flex; flex-direction: column; gap: 16px; width: 420px; margin-bottom: 32px; }
+  .actions-row { display: flex; gap: 12px; }
+  .btn {
+    flex: 1; padding: 14px 20px; border: none; border-radius: 12px;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: #fff; box-shadow: 0 4px 15px rgba(108,92,231,0.3);
+  }
+  .btn-primary:hover { box-shadow: 0 6px 20px rgba(108,92,231,0.4); }
+  .btn-secondary {
+    background: var(--card); color: var(--text);
+    border: 1px solid var(--border); box-shadow: 0 2px 8px var(--shadow);
+  }
+  .btn-secondary:hover { border-color: var(--accent); }
+
+  .copywriting-section { width: 420px; margin-bottom: 32px; }
+  .copywriting-section h2 { font-size: 18px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+  .platform-tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .platform-tab {
+    padding: 8px 16px; border-radius: 20px; font-size: 13px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--card); color: var(--text2); transition: all 0.2s;
+  }
+  .platform-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .platform-tab:hover:not(.active) { border-color: var(--accent); color: var(--text); }
+  .copywriting-box {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px; box-shadow: 0 2px 12px var(--shadow);
+  }
+  .copywriting-text {
+    font-size: 14px; line-height: 1.8; color: var(--text);
+    white-space: pre-wrap; word-break: break-word; margin-bottom: 16px; min-height: 120px;
+  }
+  .copywriting-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .btn-sm {
+    padding: 8px 16px; border-radius: 8px; font-size: 13px;
+    border: none; cursor: pointer; font-weight: 500; transition: all 0.2s;
+  }
+  .btn-sm:hover { transform: translateY(-1px); }
+  .btn-copy { background: var(--accent); color: #fff; }
+  .btn-regen { background: var(--bg); color: var(--text2); border: 1px solid var(--border); }
+
+  .toast {
+    position: fixed; top: 24px; left: 50%;
+    transform: translateX(-50%) translateY(-100px);
+    background: var(--card); color: var(--green);
+    padding: 12px 24px; border-radius: 10px; font-size: 14px; font-weight: 500;
+    box-shadow: 0 4px 20px var(--shadow); border: 1px solid var(--green);
+    transition: transform 0.3s ease; z-index: 1000;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); }
+
+  .theme-toggle {
+    position: fixed; bottom: 24px; right: 24px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 50%;
+    width: 44px; height: 44px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; box-shadow: 0 2px 12px var(--shadow); z-index: 100; transition: transform 0.2s;
+  }
+  .theme-toggle:hover { transform: scale(1.1); }
+  .theme-toggle svg { width: 20px; height: 20px; fill: var(--text); stroke: var(--text); stroke-width: 1.5; }
+
+  .back-link { margin-bottom: 24px; font-size: 13px; }
+  .back-link a { color: var(--accent); text-decoration: none; display: flex; align-items: center; gap: 4px; }
+  .back-link a:hover { text-decoration: underline; }
+
+  .tip-text { font-size: 12px; color: var(--text3); text-align: center; margin-top: 8px; line-height: 1.6; }
+
+  @media (max-width: 480px) {
+    .share-card, .actions, .copywriting-section, .range-selector { width: 100%; }
+    .card-hero-value { font-size: 40px; }
+    .card-stats { gap: 8px; }
+    .card-stat { padding: 10px; }
+    .range-presets { gap: 6px; }
+    .range-btn { padding: 6px 10px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="back-link"><a href="/">← 返回使用报告</a></div>
+
+<div class="page-header">
+  <h1>🛡️ 分享我的 AI 使用报告</h1>
+  <p>选择时间范围，生成精美分享卡片和配套文案</p>
+</div>
+
+<!-- 时间范围选择 -->
+<div class="range-selector">
+  <div class="range-selector-title">📅 选择时间范围</div>
+  <div class="range-presets" id="rangePresets">
+    <div class="range-btn" data-range="1" onclick="setRange('1')">今天</div>
+    <div class="range-btn" data-range="3" onclick="setRange('3')">最近 3 天</div>
+    <div class="range-btn active" data-range="7" onclick="setRange('7')">最近 7 天</div>
+    <div class="range-btn" data-range="14" onclick="setRange('14')">最近 14 天</div>
+    <div class="range-btn" data-range="30" onclick="setRange('30')">最近 30 天</div>
+    <div class="range-btn" data-range="pick" onclick="setRange('pick')">指定日期</div>
+  </div>
+  <div class="range-custom" id="datePickerRow" style="display:none;">
+    <label>选择日期</label>
+    <input type="date" class="date-input" id="datePicker" onchange="onPickDate()">
+  </div>
+  <div class="range-info" id="rangeInfo"></div>
+</div>
+
+<!-- 分享卡片 -->
+<div class="share-card-wrapper">
+  <div class="share-card" id="shareCard">
+    <div class="card-header">
+      <div class="card-header-inner">
+        <div class="card-brand">
+          <div class="card-brand-icon">🛡️</div>
+          <div>
+            <div class="card-brand-text">AI Time Guard</div>
+            <div class="card-brand-sub">AI 使用时间管理</div>
+          </div>
+        </div>
+        <div class="card-hero">
+          <div class="card-hero-label" id="heroLabel">本周 AI 使用总时长</div>
+          <div class="card-hero-value" id="heroValue">--:--:--</div>
+          <div class="card-hero-unit" id="heroUnit"></div>
+          <div id="rankBadge"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="card-stats" id="cardStats">
+        <div class="card-stat" id="statAvgCard">
+          <div class="card-stat-label" id="statAvgLabel">日均使用</div>
+          <div class="card-stat-value" id="statAvg">--</div>
+          <div class="card-stat-sub" id="statAvgSub"></div>
+        </div>
+        <div class="card-stat">
+          <div class="card-stat-label" id="statDaysLabel">活跃天数</div>
+          <div class="card-stat-value" id="statDays">--</div>
+          <div class="card-stat-sub" id="statDaysSub"></div>
+        </div>
+        <div class="card-stat">
+          <div class="card-stat-label">最高单日</div>
+          <div class="card-stat-value" id="statMax">--</div>
+          <div class="card-stat-sub" id="statMaxSub"></div>
+        </div>
+        <div class="card-stat">
+          <div class="card-stat-label">自律评分</div>
+          <div class="card-stat-value" id="statScore">--</div>
+          <div class="card-stat-sub" id="statScoreSub"></div>
+        </div>
+      </div>
+
+      <div class="card-tools" id="cardTools">
+        <div class="card-tools-title">🔧 AI 工具使用分布</div>
+        <div id="toolRows"></div>
+      </div>
+
+      <div class="card-mini-chart" id="miniChartSection">
+        <div class="card-mini-chart-title" id="miniChartTitle">📊 每日趋势</div>
+        <div class="mini-bars" id="miniBars"></div>
+      </div>
+    </div>
+    <div class="card-footer">
+      <div class="card-footer-slogan" id="footerSlogan">适度 AI Coding，健康生活 ✨</div>
+      <div class="card-footer-date" id="footerDate"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 操作按钮 -->
+<div class="actions">
+  <div class="actions-row">
+    <button class="btn btn-primary" onclick="saveAsImage()">📸 保存为图片</button>
+    <button class="btn btn-secondary" onclick="copyCardContent()">📋 复制数据</button>
+  </div>
+  <p class="tip-text">点击「保存为图片」可截图分享到社交媒体</p>
+</div>
+
+<!-- 文案生成 -->
+<div class="copywriting-section">
+  <h2>✍️ 配套发布文案</h2>
+  <div class="platform-tabs">
+    <div class="platform-tab active" data-platform="xiaohongshu" onclick="switchPlatform('xiaohongshu')">📕 小红书</div>
+    <div class="platform-tab" data-platform="wechat" onclick="switchPlatform('wechat')">💬 公众号</div>
+    <div class="platform-tab" data-platform="weibo" onclick="switchPlatform('weibo')">🔥 微博</div>
+    <div class="platform-tab" data-platform="twitter" onclick="switchPlatform('twitter')">🐦 X/推特</div>
+  </div>
+  <div class="copywriting-box">
+    <div class="copywriting-text" id="copywritingText">加载中...</div>
+    <div class="copywriting-actions">
+      <button class="btn-sm btn-regen" onclick="regenerate()">🔄 换一个</button>
+      <button class="btn-sm btn-copy" onclick="copyCopywriting()">📋 复制文案</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="theme-toggle" id="themeToggle" title="切换主题">
+  <svg viewBox="0 0 24 24" id="themeIcon" fill="none" stroke="currentColor">
+    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+  </svg>
+</div>
+
+<script>
+const API_BASE = window.location.origin;
+let reportData = null;
+let currentPlatform = 'xiaohongshu';
+let currentTheme = 'dark';
+let currentRange = '7';       // '1','3','7','14','30','pick'
+let pickedDate = null;         // 指定日期时用
+
+const TOOL_COLORS = {
+  'CodeBuddy': '#6c5ce7', 'WorkBuddy': '#8e44ad', 'Cursor': '#5f27cd', 'Claude Code': '#00b894',
+  'Claude Internal': '#00cec9', 'Gemini': '#e17055', 'Gemini Internal': '#fdcb6e',
+  'Codex': '#0984e3', 'Codex Internal': '#74b9ff', 'Kimi': '#FF6B9D',
+  'Antigravity': '#E8710A',
+  'Obsidian + AI': '#7C3AED', 'Notion + AI': '#F5B041', '笔记 + AI': '#A569BD', '其他': '#636e72',
+};
+function getToolColor(n) { return TOOL_COLORS[n] || '#74b9ff'; }
+
+function fmtDuration(secs) {
+  secs = Math.max(0, Math.round(secs));
+  const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+function fmtHM(secs) {
+  const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
+  if (h > 0 && m > 0) return `${h}小时${m}分钟`;
+  if (h > 0) return `${h}小时`;
+  return `${m}分钟`;
+}
+function fmtDate(ds) {
+  const d = new Date(ds + 'T00:00:00');
+  return `${d.getMonth()+1}/${d.getDate()}`;
+}
+function fmtFullDate(ds) {
+  const d = new Date(ds + 'T00:00:00');
+  return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`;
+}
+function getDateStr(daysAgo) {
+  const d = new Date(); d.setDate(d.getDate() - daysAgo);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function todayStr() { return getDateStr(0); }
+function getTotal(e) {
+  if (e == null) return 0;
+  if (typeof e === 'number') return e;
+  if (typeof e === 'object') return e.total || 0;
+  return 0;
+}
+function getTools(e) {
+  if (e == null) return {};
+  if (typeof e === 'object' && e.tools) return e.tools;
+  return {};
+}
+
+// ─── 根据当前 range 返回日期 key 列表（从旧到新） ───
+function getSelectedDateKeys() {
+  if (currentRange === 'pick' && pickedDate) {
+    return [pickedDate];
+  }
+  const n = parseInt(currentRange) || 7;
+  const keys = [];
+  for (let i = n - 1; i >= 0; i--) keys.push(getDateStr(i));
+  return keys;
+}
+
+function getRangeLabel() {
+  if (currentRange === 'pick' && pickedDate) return fmtFullDate(pickedDate);
+  const n = parseInt(currentRange) || 7;
+  if (n === 1) return '今天';
+  return `最近 ${n} 天`;
+}
+
+function getRangeLabelShort() {
+  if (currentRange === 'pick' && pickedDate) return fmtDate(pickedDate);
+  const n = parseInt(currentRange) || 7;
+  if (n === 1) return '今日';
+  if (n === 3) return '3日';
+  if (n === 7) return '本周';
+  if (n === 14) return '两周';
+  if (n === 30) return '本月';
+  return `${n}天`;
+}
+
+function getRangeDays() {
+  if (currentRange === 'pick') return 1;
+  return parseInt(currentRange) || 7;
+}
+
+// ─── 主题 ───
+function initTheme() {
+  fetch(API_BASE + '/api/config')
+    .then(r => r.json())
+    .then(c => { currentTheme = c.theme || 'dark'; applyTheme(currentTheme); })
+    .catch(() => applyTheme('dark'));
+}
+function applyTheme(theme) {
+  currentTheme = theme;
+  document.documentElement.setAttribute('data-theme', theme === 'tencent-blue' ? 'tencent-blue' : '');
+  const icon = document.getElementById('themeIcon');
+  icon.innerHTML = theme === 'tencent-blue'
+    ? '<circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>'
+    : '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>';
+}
+document.getElementById('themeToggle').addEventListener('click', () => {
+  const t = currentTheme === 'dark' ? 'tencent-blue' : 'dark';
+  applyTheme(t);
+  fetch(API_BASE + '/api/config', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({theme:t}) }).catch(()=>{});
+});
+
+// ─── 时间范围操作 ───
+function setRange(range) {
+  currentRange = range;
+  document.querySelectorAll('.range-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.range === range);
+  });
+  const dateRow = document.getElementById('datePickerRow');
+  if (range === 'pick') {
+    dateRow.style.display = 'flex';
+    if (!pickedDate) {
+      document.getElementById('datePicker').value = todayStr();
+      pickedDate = todayStr();
+    }
+  } else {
+    dateRow.style.display = 'none';
+    pickedDate = null;
+  }
+  refreshCard();
+}
+
+function onPickDate() {
+  const val = document.getElementById('datePicker').value;
+  if (val) {
+    pickedDate = val;
+    refreshCard();
+  }
+}
+
+// ─── 段位 & 评分 ───
+function getRank(avgMin) {
+  if (avgMin < 30) return { name: '🌱 AI 轻度用户', cls: 'rank-green', desc: '自律典范' };
+  if (avgMin < 60) return { name: '⚡ AI 效率达人', cls: 'rank-blue', desc: '张弛有度' };
+  if (avgMin < 120) return { name: '🔥 AI 深度玩家', cls: 'rank-orange', desc: '沉浸其中' };
+  if (avgMin < 240) return { name: '💎 AI 重度依赖', cls: 'rank-purple', desc: '人机共生' };
+  return { name: '🚨 AI 不眠战士', cls: 'rank-red', desc: '请注意休息！' };
+}
+function calcScore(history, config, dateKeys) {
+  const limitSec = (config.daily_limit_minutes || 180) * 60;
+  let score = 100, overCount = 0;
+  dateKeys.forEach(k => {
+    const sec = getTotal(history[k]);
+    if (sec > limitSec) { overCount++; score -= Math.min(15, ((sec - limitSec) / limitSec) * 20); }
+  });
+  score -= overCount * 3;
+  return Math.max(0, Math.round(score));
+}
+function getScoreLabel(s) {
+  if (s >= 90) return 'S 极佳';
+  if (s >= 80) return 'A 优秀';
+  if (s >= 70) return 'B 良好';
+  if (s >= 60) return 'C 一般';
+  return 'D 需改善';
+}
+
+// ─── 渲染卡片 ───
+function refreshCard() {
+  if (!reportData) return;
+  const { history, config, status } = reportData;
+  const limitSec = (config.daily_limit_minutes || 180) * 60;
+  const dateKeys = getSelectedDateKeys();
+  const numDays = dateKeys.length;
+  const isSingleDay = numDays === 1;
+
+  // 汇总数据
+  let totalSec = 0, activeDays = 0, maxSec = 0, maxDay = '';
+  const allTools = {};
+  const daysList = [];
+  dateKeys.forEach((key, idx) => {
+    const sec = getTotal(history[key]);
+    daysList.push({ key, sec });
+    totalSec += sec;
+    if (sec > 60) activeDays++;
+    if (sec > maxSec) { maxSec = sec; maxDay = key; }
+    const tools = getTools(history[key]);
+    for (const [name, s] of Object.entries(tools)) {
+      allTools[name] = (allTools[name] || 0) + s;
+    }
+  });
+  const avgSec = numDays > 0 ? totalSec / numDays : 0;
+  const avgMin = avgSec / 60;
+  const rank = getRank(isSingleDay ? (totalSec / 60) : avgMin);
+  const score = calcScore(history, config, dateKeys);
+
+  // Hero
+  const heroLabel = document.getElementById('heroLabel');
+  if (isSingleDay) {
+    const isToday = dateKeys[0] === todayStr();
+    heroLabel.textContent = isToday ? '今日 AI 使用时长' : `${fmtFullDate(dateKeys[0])} 使用时长`;
+  } else {
+    heroLabel.textContent = `${getRangeLabel()} AI 使用总时长`;
+  }
+  document.getElementById('heroValue').textContent = fmtDuration(totalSec);
+  document.getElementById('heroUnit').textContent = isSingleDay
+    ? `限额 ${fmtHM(limitSec)}`
+    : `日均 ${fmtHM(avgSec)}`;
+  document.getElementById('rankBadge').innerHTML = `<div class="rank-badge ${rank.cls}">${rank.name}</div>`;
+
+  // Stats - 根据是否单日调整布局
+  const statsEl = document.getElementById('cardStats');
+  const statAvgCard = document.getElementById('statAvgCard');
+  if (isSingleDay) {
+    // 单日：隐藏日均，3列布局
+    statAvgCard.style.display = 'none';
+    statsEl.classList.add('cols-3');
+    statsEl.classList.remove('cols-4');
+    document.getElementById('statDaysLabel').textContent = '使用占比';
+    const pct = limitSec > 0 ? Math.round(totalSec / limitSec * 100) : 0;
+    document.getElementById('statDays').textContent = `${pct}%`;
+    document.getElementById('statDaysSub').textContent = pct >= 100 ? '已超限' : '限额内';
+  } else {
+    statAvgCard.style.display = '';
+    statsEl.classList.remove('cols-3');
+    document.getElementById('statAvg').textContent = fmtDuration(avgSec);
+    document.getElementById('statAvgLabel').textContent = '日均使用';
+    document.getElementById('statAvgSub').textContent = rank.desc;
+    document.getElementById('statDaysLabel').textContent = '活跃天数';
+    document.getElementById('statDays').textContent = `${activeDays}/${numDays}`;
+    document.getElementById('statDaysSub').textContent = `近 ${numDays} 天`;
+  }
+  // 单日时"最高单日"变成"超限时间"
+  if (isSingleDay) {
+    const overSec = Math.max(0, totalSec - limitSec);
+    document.getElementById('statMax').textContent = overSec > 0 ? fmtDuration(overSec) : '0';
+    document.getElementById('statMaxSub').textContent = overSec > 0 ? '超出限额' : '未超限';
+  } else {
+    document.getElementById('statMax').textContent = fmtDuration(maxSec);
+    document.getElementById('statMaxSub').textContent = maxDay ? fmtDate(maxDay) : '';
+  }
+  document.getElementById('statScore').textContent = score;
+  document.getElementById('statScoreSub').textContent = getScoreLabel(score);
+
+  // 工具分布
+  const toolEntries = Object.entries(allTools).sort((a,b) => b[1]-a[1]);
+  const toolRowsEl = document.getElementById('toolRows');
+  const cardToolsEl = document.getElementById('cardTools');
+  if (toolEntries.length > 0) {
+    cardToolsEl.style.display = '';
+    const maxToolSec = toolEntries[0][1];
+    toolRowsEl.innerHTML = toolEntries.slice(0, 5).map(([name, sec]) => {
+      const pct = maxToolSec > 0 ? (sec / maxToolSec * 100) : 0;
+      return `<div class="card-tool-row">
+        <div class="card-tool-name">${name}</div>
+        <div class="card-tool-bar-bg"><div class="card-tool-bar-fill" style="width:${pct}%;background:${getToolColor(name)}"></div></div>
+        <div class="card-tool-time">${fmtDuration(sec)}</div>
+      </div>`;
+    }).join('');
+  } else {
+    cardToolsEl.style.display = 'none';
+  }
+
+  // 迷你柱状图
+  const miniSection = document.getElementById('miniChartSection');
+  if (isSingleDay) {
+    miniSection.style.display = 'none';
+  } else {
+    miniSection.style.display = '';
+    document.getElementById('miniChartTitle').textContent = `📊 ${getRangeLabel()}趋势`;
+    const maxBarSec = Math.max(limitSec, ...daysList.map(d => d.sec));
+    const miniBars = document.getElementById('miniBars');
+    // 如果天数太多就抽样显示
+    let displayDays = daysList;
+    if (daysList.length > 14) {
+      const step = Math.ceil(daysList.length / 14);
+      displayDays = daysList.filter((_, i) => i % step === 0 || i === daysList.length - 1);
+    }
+    miniBars.innerHTML = displayDays.map((d, idx) => {
+      const heightPct = maxBarSec > 0 ? Math.max(3, d.sec / maxBarSec * 100) : 3;
+      const isLast = idx === displayDays.length - 1 && d.key === todayStr();
+      const isOver = d.sec > limitSec;
+      const cls = isLast ? 'accent' : isOver ? 'over' : 'normal';
+      const label = d.key === todayStr() ? '今' : d.key === getDateStr(1) ? '昨' : fmtDate(d.key);
+      return `<div class="mini-bar-group">
+        <div class="mini-bar ${cls}" style="height:${heightPct}%"></div>
+        <div class="mini-bar-label">${label}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // Footer
+  const now = new Date();
+  document.getElementById('footerDate').textContent =
+    `${now.getFullYear()}/${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')}`;
+  const slogans = ['适度 AI Coding，健康生活 ✨','善用 AI，不被 AI 用 🎯','AI 是工具，你才是主角 🌟','自律的 Coder 最可爱 💪','高效写码，准时下班 🏠'];
+  document.getElementById('footerSlogan').textContent = slogans[Math.floor(Math.random() * slogans.length)];
+
+  // 范围提示
+  const rangeInfo = document.getElementById('rangeInfo');
+  if (isSingleDay) {
+    rangeInfo.textContent = `📌 ${dateKeys[0] === todayStr() ? '今天' : fmtFullDate(dateKeys[0])}的 AI 使用数据`;
+  } else {
+    rangeInfo.textContent = `📌 ${fmtFullDate(dateKeys[0])} ~ ${fmtFullDate(dateKeys[dateKeys.length-1])}，共 ${numDays} 天`;
+  }
+
+  generateCopywriting();
+}
+
+// ─── 文案 ───
+function switchPlatform(p) {
+  currentPlatform = p;
+  document.querySelectorAll('.platform-tab').forEach(el => el.classList.toggle('active', el.dataset.platform === p));
+  generateCopywriting();
+}
+function regenerate() { generateCopywriting(); }
+
+function generateCopywriting() {
+  if (!reportData) return;
+  const { history, config } = reportData;
+  const limitSec = (config.daily_limit_minutes || 180) * 60;
+  const dateKeys = getSelectedDateKeys();
+  const numDays = dateKeys.length;
+  const isSingle = numDays === 1;
+
+  let totalSec = 0, activeDays = 0, maxSec = 0, overDays = 0;
+  const allTools = {};
+  dateKeys.forEach(key => {
+    const sec = getTotal(history[key]);
+    totalSec += sec;
+    if (sec > 60) activeDays++;
+    if (sec > maxSec) maxSec = sec;
+    if (sec > limitSec) overDays++;
+    const tools = getTools(history[key]);
+    for (const [n, s] of Object.entries(tools)) allTools[n] = (allTools[n] || 0) + s;
+  });
+  const avgSec = numDays > 0 ? totalSec / numDays : 0;
+  const avgMin = isSingle ? totalSec / 60 : avgSec / 60;
+  const rank = getRank(avgMin);
+  const score = calcScore(history, config, dateKeys);
+  const topTool = Object.entries(allTools).sort((a,b) => b[1]-a[1])[0];
+  const topName = topTool ? topTool[0] : 'AI';
+  const topTime = topTool ? fmtHM(topTool[1]) : '--';
+  const rangeText = getRangeLabel();
+  const shortRange = getRangeLabelShort();
+  const periodWord = isSingle ? '今天' : (numDays <= 3 ? '这几天' : numDays <= 7 ? '这周' : numDays <= 14 ? '这两周' : '这个月');
+
+  const templates = {
+    xiaohongshu: [
+      () => `🛡️ AI 自律打卡 | ${rangeText} AI 使用报告
+
+${periodWord}我${isSingle ? '' : '一共'}用了 ${fmtHM(totalSec)} 的 AI 工具
+${isSingle ? '' : `日均 ${fmtHM(avgSec)}，`}段位：${rank.name}
+自律评分 ${score} 分（${getScoreLabel(score)}）
+
+📊 数据一览：
+🔧 最常用：${topName}（${topTime}）
+${isSingle ? `⏰ 限额：${fmtHM(limitSec)}` : `📅 活跃天数：${activeDays}/${numDays} 天`}
+${!isSingle ? `⚡ 最高单日：${fmtHM(maxSec)}` : ''}
+${overDays > 0 ? `⚠️ 超限天数：${overDays} 天` : '✅ 未超限！'}
+
+${avgMin < 60 ? '保持自律，AI 是工具不是依赖 💪' : avgMin < 180 ? '用量适中，张弛有度是王道 🎯' : '用量偏高，该给自己放个假了 🏖️'}
+
+#AI自律 #程序员日常 #AITimeGuard #效率工具 #代码人生`,
+
+      () => `⏰ ${rangeText} AI 使用时长：${fmtHM(totalSec)}
+
+${isSingle ? '今天的 AI 使用情况：' : '一个自律的程序员，是怎样管理 AI 使用时间的？'}
+
+${periodWord}的数据说话：
+${isSingle ? '' : `• 日均使用 ${fmtHM(avgSec)}`}
+• 主力工具 ${topName}（${topTime}）
+• 自律评分 ${score} 分
+• 段位 ${rank.name}
+
+${score >= 80 ? '自律给了我自由，这份报告就是证明 📝' : '数据不会骗人，接下来要更加自律了 💪'}
+
+用 AI Time Guard 来监控你的 AI 使用时间吧！
+做 AI 的主人，不做 AI 的奴隶 🛡️
+
+#AI使用管理 #程序员自律 #AITimeGuard #科技生活`,
+
+      () => `💻 程序员的${isSingle ? '一天' : periodWord} | AI 使用数据复盘
+
+📈 ${shortRange}战报：
+总时长 ${fmtHM(totalSec)}${isSingle ? '' : ` | 日均 ${fmtHM(avgSec)}`}
+段位 ${rank.name} | 评分 ${score}
+
+🔧 工具偏好：
+${Object.entries(allTools).sort((a,b) => b[1]-a[1]).slice(0, 3).map(([n,s]) => `  ${n}：${fmtHM(s)}`).join('\n')}
+
+${avgMin < 120 ? '✨ 效率在线，自律满分！' : '🤔 是不是该减少一点依赖了？'}
+
+AI 好用，但健康更重要。
+你${periodWord}用了多少 AI？欢迎晒图交流~
+
+#AITimeGuard #AI自律打卡 #程序员日常 #效率记录`,
+    ],
+
+    wechat: [
+      () => `🛡️ 我的 AI 使用${isSingle ? '日报' : (numDays <= 7 ? '周报' : '月报')}
+
+${periodWord}，我用 AI Time Guard 记录了自己的 AI 工具使用时间。
+
+总计 ${fmtHM(totalSec)}${isSingle ? '' : `，日均 ${fmtHM(avgSec)}`}。
+
+使用最多的工具是 ${topName}（${topTime}）${isSingle ? '' : `，${activeDays}/${numDays} 天保持活跃`}，自律评分 ${score} 分。
+
+${score >= 80
+  ? '总体表现不错，AI 是提升效率的利器，但关键在于有节制地使用。'
+  : '用量有点超标，需要更加注意时间管理。'}
+
+推荐大家也试试 AI Time Guard，了解自己的 AI 使用习惯，做到心中有数。
+
+毕竟，善用工具的人，才是真正的高效能人士。`,
+
+      () => `📊 用数据说话：我的 AI 使用${isSingle ? '日报' : `${shortRange}报告`}
+
+在 AI 时代，我们每天都在和各种 AI 工具打交道。但你知道自己花了多少时间在上面吗？
+
+${periodWord}的数据：
+- 总时长：${fmtHM(totalSec)}
+${isSingle ? '' : `- 日均：${fmtHM(avgSec)}`}
+- 段位：${rank.name}
+- 评分：${score} 分
+
+最常用的是 ${topName}${totalSec > 0 && topTool ? `，占据了 ${Math.round(topTool[1] / totalSec * 100)}% 的使用时间` : ''}。
+
+${overDays > 0
+  ? `有 ${overDays} 天超出了设定限额，提醒我要更加注意工作与休息的平衡。`
+  : '完美达标，没有超出限额。'}
+
+AI 正在重塑我们的工作方式，但别忘了，你的专注力和创造力才是不可替代的。`
+    ],
+
+    weibo: [
+      () => `${rangeText} AI 使用时长 ${fmtHM(totalSec)}，段位"${rank.name}"，自律评分 ${score} 分。最爱用 ${topName}。${score >= 80 ? '自律的感觉真好！' : '要控制一下了...'} AI 好用但别贪杯~ #AI自律# #AITimeGuard#`,
+
+      () => `📊 晒一下${periodWord}的 AI 使用报告：${isSingle ? '' : `日均 ${fmtHM(avgSec)}，`}${isSingle ? '' : `${activeDays}/${numDays} 天活跃，`}评分 ${score}。${topName} 是我的主力。${avgMin < 60 ? '轻度使用，保持健康节奏 💪' : avgMin < 180 ? '深度用户，效率拉满 🚀' : '重度依赖，该戒了 😅'} #程序员日常# #AITimeGuard#`,
+
+      () => `⏰ 用 AI Time Guard 一看，${periodWord} AI 用了 ${fmtHM(totalSec)}${!isSingle ? `... ${fmtHM(maxSec)} 的最高单日也太卷了吧` : ''}！段位 ${rank.name}，你是什么段位？#AI使用时间# #自律打卡#`,
+    ],
+
+    twitter: [
+      () => `🛡️ My AI Usage Report (${rangeText}):
+⏱️ Total: ${fmtHM(totalSec)}${isSingle ? '' : ` | Daily avg: ${fmtHM(avgSec)}`}
+🔧 Top tool: ${topName}
+📊 Score: ${score}/100
+${score >= 80 ? '✅ Staying disciplined!' : '⚠️ Need more self-control...'}
+#AITimeGuard #DevLife #AIProductivity`,
+
+      () => `📊 ${rangeText} AI time check:
+${fmtHM(totalSec)} total${isSingle ? '' : `, ${activeDays}/${numDays} days active`}.
+Rank: ${rank.name}
+${topName} is my go-to tool (${topTime}).
+AI is a tool, not a lifestyle. 🛡️
+#AITimeGuard #CodingLife`,
+    ],
+  };
+
+  const pool = templates[currentPlatform] || templates.xiaohongshu;
+  document.getElementById('copywritingText').textContent = pool[Math.floor(Math.random() * pool.length)]();
+}
+
+// ─── 操作 ───
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+function copyCopywriting() {
+  navigator.clipboard.writeText(document.getElementById('copywritingText').textContent)
+    .then(() => showToast('✅ 文案已复制到剪贴板'));
+}
+function copyCardContent() {
+  if (!reportData) return;
+  const { history, config } = reportData;
+  const dateKeys = getSelectedDateKeys();
+  const numDays = dateKeys.length;
+  let totalSec = 0, activeDays = 0;
+  const allTools = {};
+  dateKeys.forEach(k => {
+    const sec = getTotal(history[k]);
+    totalSec += sec; if (sec > 60) activeDays++;
+    const tools = getTools(history[k]);
+    for (const [n, s] of Object.entries(tools)) allTools[n] = (allTools[n] || 0) + s;
+  });
+  const avgSec = numDays > 0 ? totalSec / numDays : 0;
+  const rank = getRank((numDays === 1 ? totalSec / 60 : avgSec / 60));
+  const score = calcScore(history, config, dateKeys);
+  const toolStr = Object.entries(allTools).sort((a,b) => b[1]-a[1]).map(([n,s]) => `${n}: ${fmtHM(s)}`).join(' | ');
+  const text = `AI Time Guard ${getRangeLabel()}报告\n总时长: ${fmtHM(totalSec)}${numDays > 1 ? `\n日均: ${fmtHM(avgSec)}` : ''}\n段位: ${rank.name}\n评分: ${score}${numDays > 1 ? `\n活跃: ${activeDays}/${numDays}天` : ''}\n工具: ${toolStr}`;
+  navigator.clipboard.writeText(text).then(() => showToast('✅ 数据已复制到剪贴板'));
+}
+async function saveAsImage() {
+  const card = document.getElementById('shareCard');
+  try {
+    if (!window.html2canvas) {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+      document.head.appendChild(s);
+      await new Promise((res, rej) => { s.onload = res; s.onerror = rej; });
+    }
+    showToast('📸 正在生成图片...');
+    const canvas = await html2canvas(card, { scale: 2, backgroundColor: null, useCORS: true, logging: false });
+    const link = document.createElement('a');
+    link.download = `AI-Time-Guard-${getRangeLabel()}-${todayStr()}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    showToast('✅ 图片已保存！');
+  } catch(e) {
+    console.error(e);
+    showToast('⚠️ 保存失败，请尝试截图');
+  }
+}
+
+// ─── 初始化 ───
+(async function init() {
+  initTheme();
+  // 设置日期选择器最大值为今天
+  document.getElementById('datePicker').max = todayStr();
+  document.getElementById('datePicker').value = todayStr();
+  try {
+    const resp = await fetch(API_BASE + '/api/report');
+    reportData = await resp.json();
+    // 同步今日实时数据
+    const today = todayStr();
+    if (reportData.status) {
+      reportData.history[today] = {
+        total: reportData.status.today_seconds || getTotal(reportData.history[today]),
+        tools: reportData.status.today_tools || getTools(reportData.history[today])
+      };
+    }
+    refreshCard();
+  } catch(e) {
+    console.error('Failed to load data:', e);
+    document.getElementById('copywritingText').textContent = '数据加载失败，请确保 AI Time Guard 正在运行';
+  }
+})();
+</script>
+</body>
+</html>

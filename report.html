@@ -1,0 +1,2516 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Time Guard - 使用报告</title>
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg?v=2">
+<link rel="shortcut icon" href="/favicon.ico?v=2">
+<style>
+  :root {
+    /* 默认暗黑主题 */
+    --bg: #0f1117;
+    --card: #1a1d2e;
+    --border: #2a2d3e;
+    --text: #e1e4ed;
+    --text2: #8b8fa3;
+    --text3: #6b6f83;
+    --accent: #6c5ce7;
+    --accent2: #a29bfe;
+    --accent-light: rgba(108,92,231,0.15);
+    --green: #00b894;
+    --red: #ff6b6b;
+    --orange: #fdcb6e;
+    --blue: #74b9ff;
+    --header-bg: linear-gradient(135deg, #1a1d2e 0%, #2d1b69 50%, #1a1d2e 100%);
+    --header-text: #ffffff;
+    --header-text-secondary: rgba(255,255,255,0.7);
+    --bar-normal: linear-gradient(180deg, #4a5568, #2d3748);
+    --heatmap-empty: rgba(255,255,255,0.04);
+    --shadow: rgba(0,0,0,0.2);
+    --resource-bg: rgba(255,255,255,0.03);
+    --progress-bg: rgba(255,255,255,0.06);
+  }
+
+  /* 腾讯蓝主题 */
+  [data-theme="tencent-blue"] {
+    --bg: #f5f7fa;
+    --card: #ffffff;
+    --border: #e5e7eb;
+    --text: #333333;
+    --text2: #666666;
+    --text3: #999999;
+    --accent: #0052D9;
+    --accent2: #0066FF;
+    --accent-light: #e8f0ff;
+    --green: #0ABF5B;
+    --red: #E54545;
+    --orange: #FF9C00;
+    --blue: #0052D9;
+    --header-bg: linear-gradient(135deg, #0052D9 0%, #0066FF 50%, #0052D9 100%);
+    --header-text: #ffffff;
+    --header-text-secondary: rgba(255,255,255,0.8);
+    --bar-normal: linear-gradient(180deg, #cbd5e0, #a0aec0);
+    --heatmap-empty: #e8f0ff;
+    --shadow: rgba(0,0,0,0.08);
+    --resource-bg: #f8fafc;
+    --progress-bg: #e8f0ff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 0;
+  }
+  .header {
+    background: var(--header-bg);
+    padding: 44px 0 34px;
+    border-bottom: none;
+    position: relative;
+    overflow: hidden;
+  }
+  .header::before {
+    content: '';
+    position: absolute;
+    top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    background: radial-gradient(circle at 30% 50%, rgba(255,255,255,0.1) 0%, transparent 50%),
+                radial-gradient(circle at 70% 50%, rgba(255,255,255,0.08) 0%, transparent 40%);
+    animation: headerGlow 8s ease-in-out infinite alternate;
+  }
+  @keyframes headerGlow {
+    0% { transform: translate(0, 0); }
+    100% { transform: translate(-2%, 1%); }
+  }
+  .header-inner {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 0 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    position: relative;
+    z-index: 1;
+  }
+  .header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .header-bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 24px;
+  }
+  .header-title-row { display: flex; align-items: center; gap: 12px; }
+  .header-logo {
+    font-size: 28px;
+    line-height: 1;
+    filter: drop-shadow(0 0 8px rgba(255,255,255,0.3));
+  }
+  .header h1 {
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    color: var(--header-text);
+  }
+  .header h1 span { color: var(--header-text-secondary); }
+  .header-slogan {
+    font-size: 13px;
+    color: var(--header-text-secondary);
+    letter-spacing: 0.3px;
+    flex-shrink: 0;
+  }
+  .header-slogan em {
+    font-style: normal;
+    color: var(--header-text);
+    font-weight: 500;
+  }
+  .header-quote {
+    font-size: 13px;
+    color: var(--header-text);
+    letter-spacing: 0.2px;
+    opacity: 0.9;
+    transition: opacity 0.4s ease;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: right;
+    flex: 1;
+    min-width: 0;
+  }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+  .live-dot {
+    width: 8px; height: 8px;
+    background: var(--green);
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .status-badge {
+    font-size: 13px;
+    color: var(--text);
+    background: var(--card);
+    padding: 6px 14px;
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 2px 8px var(--shadow);
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 24px; }
+
+  /* 今日概览卡片 */
+  .overview {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 2px 8px var(--shadow);
+    transition: box-shadow 0.2s, transform 0.2s;
+  }
+  .stat-card:hover {
+    box-shadow: 0 4px 16px rgba(0,82,217,0.12);
+    transform: translateY(-1px);
+  }
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    border-radius: 12px 12px 0 0;
+  }
+  .stat-card:nth-child(1)::before { background: var(--accent); }
+  .stat-card:nth-child(2)::before { background: var(--green); }
+  .stat-card:nth-child(3)::before { background: var(--orange); }
+  .stat-card:nth-child(4)::before { background: var(--blue); }
+  .stat-label {
+    font-size: 12px;
+    color: var(--text3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+  }
+  .stat-value {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -1px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+  }
+  .stat-sub {
+    font-size: 12px;
+    color: var(--text2);
+    margin-top: 4px;
+  }
+
+  /* 进度条 */
+  .progress-section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 8px var(--shadow);
+  }
+  .progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  .progress-title { font-size: 15px; font-weight: 600; color: var(--text); }
+  .progress-percent { font-size: 24px; font-weight: 700; color: var(--accent); }
+  .progress-bar-bg {
+    width: 100%;
+    height: 12px;
+    background: var(--progress-bg);
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    border-radius: 6px;
+    transition: width 0.8s ease;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+  }
+  .progress-bar-fill.warning {
+    background: linear-gradient(90deg, var(--orange), #ffaa00);
+  }
+  .progress-bar-fill.danger {
+    background: linear-gradient(90deg, var(--red), #ff6666);
+  }
+  .progress-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text3);
+  }
+
+  /* 图表区域 */
+  .charts-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .chart-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 2px 8px var(--shadow);
+  }
+  .chart-card h3 {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 20px;
+    color: var(--text);
+  }
+  .chart-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .chart-title-row h3 {
+    margin-bottom: 0;
+  }
+  .range-switch {
+    display: inline-flex;
+    gap: 6px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--progress-bg);
+  }
+  .range-chip {
+    border: none;
+    background: transparent;
+    color: var(--text2);
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .range-chip.active {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  /* 柱状图 */
+  .bar-chart {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    height: 200px;
+    gap: 8px;
+    padding-top: 10px;
+  }
+  .bar-group {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100%;
+    justify-content: flex-end;
+  }
+  .bar-value {
+    font-size: 11px;
+    color: var(--text3);
+    margin-bottom: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .bar {
+    width: 100%;
+    max-width: 48px;
+    border-radius: 6px 6px 2px 2px;
+    min-height: 4px;
+    transition: height 0.6s ease;
+    position: relative;
+  }
+  .bar.today { background: linear-gradient(180deg, var(--accent2), var(--accent)); }
+  .bar.normal { background: var(--bar-normal); }
+  .bar.over { background: linear-gradient(180deg, var(--red), #ff6666); }
+  .bar-label {
+    font-size: 12px;
+    color: var(--text3);
+    margin-top: 8px;
+  }
+  .bar-limit-line {
+    position: absolute;
+    left: -6px;
+    right: -6px;
+    border-top: 2px dashed var(--red);
+    opacity: 0.6;
+  }
+
+  /* 饼图/统计列表 */
+  .summary-list { list-style: none; }
+  .summary-list li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+  .summary-list li:last-child { border-bottom: none; }
+  .summary-list .label { color: var(--text2); }
+  .summary-list .value { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); }
+
+  /* 30天热力图 */
+  .heatmap-section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 8px var(--shadow);
+  }
+  .heatmap-section h3 {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    color: var(--text);
+  }
+  .heatmap-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px;
+  }
+  .heatmap-grid {
+    display: grid;
+    grid-template-columns: repeat(15, 1fr);
+    gap: 4px;
+  }
+  .heatmap-grid.yearly {
+    grid-template-columns: repeat(53, 12px);
+    grid-auto-rows: 12px;
+    gap: 3px;
+    min-width: 790px;
+  }
+  .heatmap-grid.yearly .heatmap-cell {
+    width: 12px;
+    height: 12px;
+    aspect-ratio: auto;
+    border-radius: 2px;
+  }
+  .heatmap-cell {
+    aspect-ratio: 1;
+    border-radius: 4px;
+    background: var(--heatmap-empty);
+    position: relative;
+    cursor: pointer;
+    transition: transform 0.15s;
+  }
+  .heatmap-cell:hover { transform: scale(1.3); z-index: 1; }
+  .heatmap-cell .tooltip {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.8);
+    color: #fff;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    white-space: nowrap;
+    z-index: 10;
+  }
+  .heatmap-cell:hover .tooltip { display: block; }
+  .heatmap-legend {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 12px;
+    font-size: 11px;
+    color: var(--text2);
+  }
+  .heatmap-legend .swatch {
+    width: 14px; height: 14px;
+    border-radius: 3px;
+  }
+  .yearly-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .year-card {
+    border: 1px solid var(--border);
+    background: var(--card);
+    border-radius: 10px;
+    padding: 14px;
+  }
+  .year-card h4 {
+    font-size: 14px;
+    margin-bottom: 8px;
+    color: var(--text);
+  }
+  .year-card .v {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .year-card .s {
+    font-size: 12px;
+    color: var(--text2);
+    margin-top: 4px;
+  }
+
+  .footer {
+    text-align: center;
+    padding: 36px 0;
+    color: var(--text3);
+    font-size: 12px;
+    line-height: 1.8;
+  }
+  .footer-meta { opacity: 0.8; }
+
+  /* 工具分布 */
+  .tool-breakdown {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 8px var(--shadow);
+  }
+  .tool-breakdown h3 {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    color: var(--text);
+  }
+  .tool-bar-container {
+    display: flex;
+    height: 28px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--progress-bg);
+    margin-bottom: 16px;
+  }
+  .tool-bar-segment {
+    height: 100%;
+    transition: width 0.6s ease;
+    position: relative;
+    min-width: 2px;
+  }
+  .tool-bar-segment:first-child { border-radius: 8px 0 0 8px; }
+  .tool-bar-segment:last-child { border-radius: 0 8px 8px 0; }
+  .tool-bar-segment:only-child { border-radius: 8px; }
+  .tool-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .tool-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .tool-legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .tool-legend-name { color: var(--text2); }
+  .tool-legend-value { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); }
+  .tool-legend-pct { color: var(--text3); font-size: 12px; margin-left: 2px; }
+
+  /* 30日工具分布列表 */
+  .tool-30d-list { margin-top: 4px; }
+  .tool-30d-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 0;
+  }
+  .tool-30d-row + .tool-30d-row { border-top: 1px solid var(--border); }
+  .tool-30d-name {
+    width: 110px; flex-shrink: 0; font-size: 13px; color: var(--text);
+    font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .tool-30d-bar-bg {
+    flex: 1; height: 8px; border-radius: 4px;
+    background: var(--progress-bg); overflow: hidden;
+  }
+  .tool-30d-bar-fill {
+    height: 100%; border-radius: 4px; transition: width 0.6s ease;
+  }
+  .tool-30d-time {
+    width: 70px; flex-shrink: 0; text-align: right;
+    font-size: 12px; font-weight: 600; color: var(--text2);
+    font-variant-numeric: tabular-nums;
+  }
+  .tool-30d-pct {
+    width: 40px; flex-shrink: 0; text-align: right;
+    font-size: 11px; color: var(--text3);
+  }
+
+  /* 实时状态 */
+  .realtime-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    padding: 4px 12px;
+    border-radius: 12px;
+  }
+  .realtime-badge.active {
+    background: rgba(10,191,91,0.12);
+    color: var(--green);
+  }
+  .realtime-badge.inactive {
+    background: rgba(0,0,0,0.04);
+    color: var(--text3);
+  }
+
+  /* 资源监控 */
+  .resource-section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 8px var(--shadow);
+  }
+  .resource-section h3 {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    color: var(--text);
+  }
+  .resource-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .resource-loading {
+    text-align: center;
+    color: var(--text2);
+    padding: 20px;
+    font-size: 14px;
+  }
+  .resource-empty {
+    text-align: center;
+    color: var(--text2);
+    padding: 20px;
+    font-size: 14px;
+  }
+  .resource-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    background: var(--resource-bg);
+    border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .resource-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .resource-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .resource-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text);
+  }
+  .resource-pid {
+    font-size: 12px;
+    color: var(--text3);
+    margin-left: 8px;
+  }
+  .resource-metrics {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+  }
+  .resource-metric {
+    text-align: right;
+  }
+  .resource-metric-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .resource-metric-label {
+    font-size: 11px;
+    color: var(--text3);
+  }
+  .resource-bar-bg {
+    width: 80px;
+    height: 6px;
+    background: var(--progress-bg);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .resource-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+  }
+  .resource-bar-fill.cpu { background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .resource-bar-fill.mem { background: linear-gradient(90deg, #ff9c00, #ffc107); }
+
+  /* 主题切换按钮 */
+  .theme-toggle {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 2px 12px var(--shadow);
+    transition: transform 0.2s, box-shadow 0.2s;
+    z-index: 100;
+  }
+  .theme-toggle:hover {
+    transform: scale(1.1);
+    box-shadow: 0 4px 20px var(--shadow);
+  }
+  .theme-toggle svg {
+    width: 24px;
+    height: 24px;
+    fill: var(--text);
+  }
+
+  @media (max-width: 768px) {
+    .overview { grid-template-columns: repeat(2, 1fr); }
+    .charts-row { grid-template-columns: 1fr; }
+    .heatmap-grid { grid-template-columns: repeat(10, 1fr); }
+    .heatmap-grid.yearly { grid-template-columns: repeat(53, 10px); grid-auto-rows: 10px; min-width: 690px; }
+    .heatmap-grid.yearly .heatmap-cell { width: 10px; height: 10px; }
+    .resource-metrics { gap: 12px; }
+    .resource-bar-bg { width: 50px; }
+    .yearly-grid { grid-template-columns: 1fr; }
+    .chart-title-row { flex-direction: column; align-items: flex-start; }
+  }
+
+  /* ─── 分享 Modal ─── */
+  .modal-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+    z-index: 500; display: none; justify-content: center; align-items: flex-start;
+    overflow-y: auto; padding: 40px 16px;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal-content {
+    width: 640px; max-width: 100%;
+    background: var(--card);
+    border-radius: 16px;
+    padding: 28px;
+    border: 1px solid var(--border);
+    box-shadow: 0 16px 48px var(--shadow), 0 0 0 1px var(--border);
+    animation: modalIn 0.25s ease;
+  }
+  @keyframes modalIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+  .modal-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 20px;
+  }
+  .modal-header h2 { font-size: 20px; font-weight: 700; color: var(--text); }
+  .modal-close {
+    width: 36px; height: 36px; border-radius: 50%; border: none;
+    background: var(--card); color: var(--text2); font-size: 18px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s; border: 1px solid var(--border);
+  }
+  .modal-close:hover { background: var(--border); color: var(--text); }
+
+  /* 分享 Modal 内的时间选择器 */
+  .share-range-selector { margin-bottom: 20px; }
+  .share-range-title { font-size: 13px; color: var(--text2); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+  .share-range-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .share-range-btn {
+    padding: 6px 12px; border-radius: 16px; font-size: 12px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--card); color: var(--text2); transition: all 0.2s; white-space: nowrap;
+  }
+  .share-range-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .share-range-btn:hover:not(.active) { border-color: var(--accent); color: var(--text); }
+  .share-date-row { display: flex; align-items: center; gap: 10px; }
+  .share-date-row label { font-size: 12px; color: var(--text3); flex-shrink: 0; }
+  .share-date-input {
+    flex: 1; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); font-size: 13px; font-family: inherit; outline: none;
+  }
+  .share-date-input:focus { border-color: var(--accent); }
+  .share-date-input::-webkit-calendar-picker-indicator { filter: invert(0.5); cursor: pointer; }
+  [data-theme="tencent-blue"] .share-date-input::-webkit-calendar-picker-indicator { filter: none; }
+  .share-range-info { font-size: 12px; color: var(--accent); margin-top: 6px; min-height: 16px; }
+
+  /* 分享卡片 */
+  .share-card {
+    background: var(--card); border-radius: 16px; overflow: hidden;
+    box-shadow: 0 8px 40px var(--shadow); border: 1px solid var(--border); margin-bottom: 20px;
+  }
+  .sc-header {
+    background: linear-gradient(135deg, #6c5ce7, #a29bfe, #74b9ff);
+    padding: 24px 20px 18px; position: relative; overflow: hidden;
+  }
+  [data-theme="tencent-blue"] .sc-header { background: linear-gradient(135deg, #0052D9, #0066FF, #3399FF); }
+  .sc-header::before {
+    content: ''; position: absolute; top: -30%; right: -20%;
+    width: 180px; height: 180px; background: radial-gradient(circle, rgba(255,255,255,0.15), transparent 70%); border-radius: 50%;
+  }
+  .sc-header-inner { position: relative; z-index: 1; }
+  .sc-brand { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .sc-brand-icon { font-size: 22px; }
+  .sc-brand-text { font-size: 14px; font-weight: 600; color: #fff; }
+  .sc-brand-sub { font-size: 10px; color: rgba(255,255,255,0.7); margin-top: 1px; }
+  .sc-hero { text-align: center; padding: 6px 0; }
+  .sc-hero-label { font-size: 11px; color: rgba(255,255,255,0.8); letter-spacing: 0.5px; margin-bottom: 4px; }
+  .sc-hero-value { font-size: 42px; font-weight: 800; color: #fff; letter-spacing: -2px; text-shadow: 0 2px 10px rgba(0,0,0,0.2); }
+  .sc-hero-unit { font-size: 13px; color: rgba(255,255,255,0.85); margin-top: 2px; }
+  .sc-rank { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 16px; font-size: 12px; font-weight: 600; margin-top: 6px; }
+  .sc-rank.rank-green { background: rgba(0,184,148,0.15); color: #00b894; }
+  .sc-rank.rank-blue { background: rgba(108,92,231,0.15); color: #a29bfe; }
+  .sc-rank.rank-orange { background: rgba(253,203,110,0.15); color: #fdcb6e; }
+  .sc-rank.rank-red { background: rgba(255,107,107,0.15); color: #ff6b6b; }
+  .sc-rank.rank-purple { background: rgba(162,155,254,0.15); color: #a29bfe; }
+
+  .sc-body { padding: 16px 20px; }
+  .sc-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .sc-stats.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .sc-stat { background: var(--bg); border-radius: 10px; padding: 12px; text-align: center; }
+  .sc-stat-label { font-size: 10px; color: var(--text3); margin-bottom: 4px; }
+  .sc-stat-value { font-size: 18px; font-weight: 700; color: var(--text); }
+  .sc-stat-sub { font-size: 10px; color: var(--text2); margin-top: 2px; }
+
+  .sc-tools { margin-bottom: 16px; }
+  .sc-tools-title { font-size: 11px; color: var(--text3); margin-bottom: 8px; }
+  .sc-tool-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .sc-tool-name { font-size: 11px; color: var(--text2); width: 80px; text-align: right; flex-shrink: 0; }
+  .sc-tool-bar-bg { flex: 1; height: 14px; background: var(--bg); border-radius: 7px; overflow: hidden; }
+  .sc-tool-bar-fill { height: 100%; border-radius: 7px; min-width: 4px; }
+  .sc-tool-time { font-size: 11px; font-weight: 600; color: var(--text); width: 50px; }
+
+  .sc-mini-chart { margin-bottom: 16px; }
+  .sc-mini-chart-title { font-size: 11px; color: var(--text3); margin-bottom: 8px; }
+  .sc-mini-bars { display: flex; align-items: flex-end; gap: 4px; height: 50px; }
+  .sc-mini-bar-group { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
+  .sc-mini-bar { width: 100%; border-radius: 3px 3px 1px 1px; min-height: 3px; }
+  .sc-mini-bar.accent { background: linear-gradient(180deg, var(--accent2), var(--accent)); }
+  .sc-mini-bar.normal { background: var(--border); }
+  .sc-mini-bar.over { background: linear-gradient(180deg, var(--red), #ff4444); }
+  .sc-mini-bar-label { font-size: 9px; color: var(--text3); margin-top: 3px; }
+
+  .sc-footer {
+    padding: 12px 20px; border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .sc-footer-slogan { font-size: 11px; color: var(--text3); font-style: italic; }
+  .sc-footer-date { font-size: 10px; color: var(--text3); }
+
+  /* 操作按钮 */
+  .share-actions { display: flex; gap: 10px; margin-bottom: 20px; }
+  .share-btn {
+    flex: 1; padding: 12px 16px; border: none; border-radius: 10px;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s;
+  }
+  .share-btn:hover { transform: translateY(-1px); }
+  .share-btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; box-shadow: 0 4px 15px rgba(108,92,231,0.3); }
+  .share-btn-secondary { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+
+  /* 文案区域 */
+  .share-copywriting { margin-bottom: 16px; }
+  .share-cw-title { font-size: 15px; font-weight: 700; margin-bottom: 12px; color: var(--text); display: flex; align-items: center; gap: 6px; }
+  .share-platform-tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+  .share-ptab {
+    padding: 6px 12px; border-radius: 16px; font-size: 12px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--card); color: var(--text2); transition: all 0.2s;
+  }
+  .share-ptab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .share-ptab:hover:not(.active) { border-color: var(--accent); color: var(--text); }
+  .share-cw-box {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px; box-shadow: 0 2px 8px var(--shadow);
+  }
+  .share-cw-text { font-size: 13px; line-height: 1.8; color: var(--text); white-space: pre-wrap; word-break: break-word; margin-bottom: 12px; min-height: 100px; }
+  .share-cw-actions { display: flex; justify-content: flex-end; gap: 6px; }
+  .share-cw-btn {
+    padding: 6px 14px; border-radius: 8px; font-size: 12px;
+    border: none; cursor: pointer; font-weight: 500; transition: all 0.2s;
+  }
+  .share-cw-btn:hover { transform: translateY(-1px); }
+  .share-cw-btn-copy { background: var(--accent); color: #fff; }
+  .share-cw-btn-regen { background: var(--bg); color: var(--text2); border: 1px solid var(--border); }
+
+  .share-toast {
+    position: fixed; top: 24px; left: 50%;
+    transform: translateX(-50%) translateY(-100px);
+    background: var(--card); color: var(--green);
+    padding: 10px 20px; border-radius: 10px; font-size: 13px; font-weight: 500;
+    box-shadow: 0 4px 20px var(--shadow); border: 1px solid var(--green);
+    transition: transform 0.3s ease; z-index: 1000;
+  }
+  .share-toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* ─── 设置 Modal ─── */
+  .settings-section { margin-bottom: 24px; }
+  .settings-section-title {
+    font-size: 14px; font-weight: 700; color: var(--text);
+    margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+    padding-bottom: 8px; border-bottom: 1px solid var(--border);
+  }
+  .settings-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 0; border-bottom: 1px solid var(--border);
+  }
+  .settings-row:last-child { border-bottom: none; }
+  .settings-row-info { flex: 1; min-width: 0; }
+  .settings-row-label { font-size: 14px; font-weight: 500; color: var(--text); }
+  .settings-row-desc { font-size: 12px; color: var(--text3); margin-top: 2px; }
+  .settings-row-control { flex-shrink: 0; margin-left: 16px; }
+
+  /* 选择器 */
+  .settings-select {
+    padding: 6px 28px 6px 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); font-size: 13px; font-family: inherit;
+    outline: none; cursor: pointer; appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b8fa3' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 8px center;
+  }
+  .settings-select:focus { border-color: var(--accent); }
+
+  /* 开关 */
+  .settings-toggle {
+    position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer;
+    vertical-align: middle; flex-shrink: 0;
+  }
+  .settings-toggle input {
+    position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none;
+  }
+  .settings-toggle-track {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: #ccc; border-radius: 12px; transition: background 0.2s;
+  }
+  [data-theme="tencent-blue"] .settings-toggle-track { background: #d1d5db; }
+  .settings-toggle input:checked + .settings-toggle-track { background: var(--accent); }
+  .settings-toggle-thumb {
+    position: absolute; top: 2px; left: 2px; width: 20px; height: 20px;
+    background: #fff; border-radius: 50%; transition: transform 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+  .settings-toggle input:checked ~ .settings-toggle-thumb { transform: translateX(20px); }
+
+  /* 保存按钮 */
+  .settings-save-row { display: flex; gap: 10px; margin-top: 20px; }
+  .settings-save-btn {
+    flex: 1; padding: 12px 16px; border: none; border-radius: 10px;
+    font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+  }
+  .settings-save-btn:hover { transform: translateY(-1px); }
+  .settings-save-btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; box-shadow: 0 4px 15px rgba(108,92,231,0.3); }
+  .settings-save-btn-secondary { background: var(--card); color: var(--text2); border: 1px solid var(--border); }
+
+  /* ─── 分享卡片主题皮肤 ─── */
+  .share-skin-selector { margin-bottom: 16px; }
+  .share-skin-title { font-size: 13px; color: var(--text2); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+  .share-skin-list { display: flex; gap: 8px; flex-wrap: wrap; }
+  .share-skin-item {
+    width: 48px; height: 32px; border-radius: 8px; cursor: pointer;
+    border: 2px solid transparent; transition: all 0.2s; position: relative; overflow: hidden;
+  }
+  .share-skin-item:hover { transform: scale(1.08); }
+  .share-skin-item.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-light); }
+  .share-skin-item::after {
+    content: ''; position: absolute; inset: 0; border-radius: 6px;
+  }
+  .share-skin-purple { background: linear-gradient(135deg, #6c5ce7, #a29bfe, #74b9ff); }
+  .share-skin-blue { background: linear-gradient(135deg, #0052D9, #0066FF, #3399FF); }
+  .share-skin-green { background: linear-gradient(135deg, #00b894, #55efc4, #81ecec); }
+  .share-skin-sunset { background: linear-gradient(135deg, #e17055, #fdcb6e, #fab1a0); }
+  .share-skin-rose { background: linear-gradient(135deg, #fd79a8, #e84393, #a29bfe); }
+  .share-skin-dark { background: linear-gradient(135deg, #2d3436, #636e72, #b2bec3); }
+  .share-skin-name {
+    font-size: 10px; color: var(--text3); text-align: center; margin-top: 4px;
+  }
+
+  @media (max-width: 680px) {
+    .modal-content { width: 100%; }
+    .sc-hero-value { font-size: 36px; }
+    .share-range-presets { gap: 4px; }
+    .share-range-btn { padding: 5px 10px; font-size: 11px; }
+    .settings-row { flex-direction: column; align-items: flex-start; gap: 8px; }
+    .settings-row-control { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div class="header-top">
+      <div class="header-title-row">
+        <div class="header-logo">🛡️</div>
+        <h1>AI <span>Time Guard</span></h1>
+      </div>
+      <div class="header-right">
+        <button onclick="openShareModal()" style="display:inline-flex;align-items:center;gap:6px;padding:7px 16px;border-radius:10px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.2);font-size:13px;font-weight:600;cursor:pointer;backdrop-filter:blur(4px);transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">📸 分享</button>
+        <button onclick="openSettingsModal()" style="display:inline-flex;align-items:center;gap:6px;padding:7px 16px;border-radius:10px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.2);font-size:13px;font-weight:600;cursor:pointer;backdrop-filter:blur(4px);transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">⚙️ 设置</button>
+        <div class="status-badge">
+          <div class="live-dot" id="liveDot"></div>
+          <span id="statusText">加载中...</span>
+        </div>
+      </div>
+    </div>
+    <div class="header-bottom">
+      <div class="header-slogan">AI Coding 虽好，可不要贪杯哦 ～ <em>适度 Coding，健康生活</em></div>
+      <div class="header-quote" id="headerQuote">💡 写代码是为了改变世界，不是为了让 AI Coding 改变你的作息</div>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+  <!-- 今日概览 -->
+  <div class="overview" id="overview">
+    <div class="stat-card">
+      <div class="stat-label">今日已用</div>
+      <div class="stat-value" id="todayUsed">--:--</div>
+      <div class="stat-sub" id="todaySub"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">剩余额度</div>
+      <div class="stat-value" id="remaining">--:--</div>
+      <div class="stat-sub" id="remainSub"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">7日平均</div>
+      <div class="stat-value" id="avg7">--:--</div>
+      <div class="stat-sub" id="avg7Sub"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">30日总计</div>
+      <div class="stat-value" id="total30">--:--</div>
+      <div class="stat-sub" id="total30Sub"></div>
+    </div>
+  </div>
+
+  <!-- 今日进度 -->
+  <div class="progress-section">
+    <div class="progress-header">
+      <span class="progress-title">今日使用进度</span>
+      <span class="progress-percent" id="progressPct">0%</span>
+    </div>
+    <div class="progress-bar-bg">
+      <div class="progress-bar-fill" id="progressBar" style="width:0%"></div>
+    </div>
+    <div class="progress-labels">
+      <span>0</span>
+      <span id="limitLabel">限额: --</span>
+    </div>
+  </div>
+
+  <!-- 工具使用分布 -->
+  <div class="tool-breakdown" id="toolBreakdown" style="display:none">
+    <h3>今日工具使用分布</h3>
+    <div class="tool-bar-container" id="toolBar"></div>
+    <div class="tool-legend" id="toolLegend"></div>
+  </div>
+
+  <!-- 图表 -->
+  <div class="charts-row">
+    <div class="chart-card">
+      <div class="chart-title-row">
+        <h3 id="trendTitle">最近 14 天使用时长</h3>
+        <div class="range-switch" id="trendRange">
+          <button class="range-chip active" data-days="14" onclick="setTrendDays(14)">14天</button>
+          <button class="range-chip" data-days="30" onclick="setTrendDays(30)">30天</button>
+          <button class="range-chip" data-days="90" onclick="setTrendDays(90)">90天</button>
+          <button class="range-chip" data-days="365" onclick="setTrendDays(365)">1年</button>
+        </div>
+      </div>
+      <div class="bar-chart" id="barChart"></div>
+    </div>
+    <div class="chart-card">
+      <h3>统计摘要</h3>
+      <ul class="summary-list" id="summaryList"></ul>
+    </div>
+  </div>
+
+  <!-- 30日工具分布 -->
+  <div class="tool-breakdown" id="tool30dSection" style="display:none">
+    <h3>近 30 天工具使用分布</h3>
+    <div class="tool-30d-list" id="tool30dList"></div>
+  </div>
+
+  <!-- 30天热力图 -->
+  <div class="heatmap-section">
+    <div class="chart-title-row">
+      <h3 id="heatmapTitle">最近 30 天活跃热力图</h3>
+      <div class="range-switch" id="heatmapRange">
+        <button class="range-chip active" data-heatdays="30" onclick="setHeatmapDays(30)">30天</button>
+        <button class="range-chip" data-heatdays="365" onclick="setHeatmapDays(365)">1年</button>
+      </div>
+    </div>
+    <div class="heatmap-scroll">
+      <div class="heatmap-grid" id="heatmap"></div>
+    </div>
+    <div class="heatmap-legend" id="heatmapLegend">
+      <span>少</span>
+      <div class="swatch" id="legend1"></div>
+      <div class="swatch" id="legend2"></div>
+      <div class="swatch" id="legend3"></div>
+      <div class="swatch" id="legend4"></div>
+      <div class="swatch" id="legend5"></div>
+      <span>多</span>
+    </div>
+  </div>
+
+  <div class="tool-breakdown">
+    <h3>年度总览</h3>
+    <div class="yearly-grid" id="yearlyGrid">
+      <div class="resource-loading">加载中...</div>
+    </div>
+  </div>
+
+  <!-- 资源监控 -->
+  <div class="resource-section" id="resourceSection">
+    <h3>🔧 AI 工具资源监控</h3>
+    <div class="resource-list" id="resourceList">
+      <div class="resource-loading">加载中...</div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  <div class="footer-meta">🛡️ AI Time Guard &middot; 自动每 30 秒刷新 &middot; 守护每一个不秃头的程序员</div>
+</div>
+
+<!-- 分享弹出框 -->
+<div class="modal-overlay" id="shareModal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>📸 分享报告</h2>
+      <button class="modal-close" onclick="closeShareModal()">✕</button>
+    </div>
+
+    <!-- 时间范围选择 -->
+    <div class="share-range-selector">
+      <div class="share-range-title">📅 选择时间范围</div>
+      <div class="share-range-presets" id="shareRangePresets">
+        <div class="share-range-btn" data-range="1" onclick="shareSetRange('1')">今天</div>
+        <div class="share-range-btn" data-range="3" onclick="shareSetRange('3')">最近 3 天</div>
+        <div class="share-range-btn active" data-range="7" onclick="shareSetRange('7')">最近 7 天</div>
+        <div class="share-range-btn" data-range="14" onclick="shareSetRange('14')">最近 14 天</div>
+        <div class="share-range-btn" data-range="30" onclick="shareSetRange('30')">最近 30 天</div>
+        <div class="share-range-btn" data-range="pick" onclick="shareSetRange('pick')">指定日期</div>
+      </div>
+      <div class="share-date-row" id="shareDateRow" style="display:none;">
+        <label>选择日期</label>
+        <input type="date" class="share-date-input" id="shareDatePicker" onchange="shareOnPickDate()">
+      </div>
+      <div class="share-range-info" id="shareRangeInfo"></div>
+    </div>
+
+    <!-- 卡片主题皮肤 -->
+    <div class="share-skin-selector">
+      <div class="share-skin-title">🎨 卡片风格</div>
+      <div class="share-skin-list">
+        <div style="text-align:center"><div class="share-skin-item share-skin-purple active" data-skin="purple" onclick="shareSetSkin('purple')"></div><div class="share-skin-name">经典紫</div></div>
+        <div style="text-align:center"><div class="share-skin-item share-skin-blue" data-skin="blue" onclick="shareSetSkin('blue')"></div><div class="share-skin-name">腾讯蓝</div></div>
+        <div style="text-align:center"><div class="share-skin-item share-skin-green" data-skin="green" onclick="shareSetSkin('green')"></div><div class="share-skin-name">清新绿</div></div>
+        <div style="text-align:center"><div class="share-skin-item share-skin-sunset" data-skin="sunset" onclick="shareSetSkin('sunset')"></div><div class="share-skin-name">日落橙</div></div>
+        <div style="text-align:center"><div class="share-skin-item share-skin-rose" data-skin="rose" onclick="shareSetSkin('rose')"></div><div class="share-skin-name">玫瑰粉</div></div>
+        <div style="text-align:center"><div class="share-skin-item share-skin-dark" data-skin="dark" onclick="shareSetSkin('dark')"></div><div class="share-skin-name">暗夜黑</div></div>
+      </div>
+    </div>
+
+    <!-- 分享卡片 -->
+    <div class="share-card" id="shareCard">
+      <div class="sc-header">
+        <div class="sc-header-inner">
+          <div class="sc-brand">
+            <div class="sc-brand-icon">🛡️</div>
+            <div>
+              <div class="sc-brand-text">AI Time Guard</div>
+              <div class="sc-brand-sub">AI 使用时间管理</div>
+            </div>
+          </div>
+          <div class="sc-hero">
+            <div class="sc-hero-label" id="scHeroLabel">本周 AI 使用总时长</div>
+            <div class="sc-hero-value" id="scHeroValue">--:--:--</div>
+            <div class="sc-hero-unit" id="scHeroUnit"></div>
+            <div id="scRankBadge"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sc-body">
+        <div class="sc-stats" id="scStats">
+          <div class="sc-stat" id="scStatAvgCard">
+            <div class="sc-stat-label" id="scStatAvgLabel">日均使用</div>
+            <div class="sc-stat-value" id="scStatAvg">--</div>
+            <div class="sc-stat-sub" id="scStatAvgSub"></div>
+          </div>
+          <div class="sc-stat">
+            <div class="sc-stat-label" id="scStatDaysLabel">活跃天数</div>
+            <div class="sc-stat-value" id="scStatDays">--</div>
+            <div class="sc-stat-sub" id="scStatDaysSub"></div>
+          </div>
+          <div class="sc-stat">
+            <div class="sc-stat-label" id="scStatMaxLabel">最高单日</div>
+            <div class="sc-stat-value" id="scStatMax">--</div>
+            <div class="sc-stat-sub" id="scStatMaxSub"></div>
+          </div>
+          <div class="sc-stat">
+            <div class="sc-stat-label">自律评分</div>
+            <div class="sc-stat-value" id="scStatScore">--</div>
+            <div class="sc-stat-sub" id="scStatScoreSub"></div>
+          </div>
+        </div>
+        <div class="sc-tools" id="scTools">
+          <div class="sc-tools-title">🔧 AI 工具使用分布</div>
+          <div id="scToolRows"></div>
+        </div>
+        <div class="sc-mini-chart" id="scMiniChart">
+          <div class="sc-mini-chart-title" id="scMiniTitle">📊 每日趋势</div>
+          <div class="sc-mini-bars" id="scMiniBars"></div>
+        </div>
+      </div>
+      <div class="sc-footer">
+        <div class="sc-footer-slogan" id="scFooterSlogan">适度 AI Coding，健康生活 ✨</div>
+        <div class="sc-footer-date" id="scFooterDate"></div>
+      </div>
+    </div>
+
+    <!-- 操作按钮 -->
+    <div class="share-actions">
+      <button class="share-btn share-btn-primary" onclick="shareCopyImage()">📋 复制图片</button>
+      <button class="share-btn share-btn-secondary" onclick="shareSaveImage()">💾 保存图片</button>
+      <button class="share-btn share-btn-secondary" onclick="shareCopyData()">📊 复制数据</button>
+    </div>
+
+    <!-- 文案 -->
+    <div class="share-copywriting">
+      <div class="share-cw-title">✍️ 配套发布文案</div>
+      <div class="share-platform-tabs">
+        <div class="share-ptab active" data-platform="xiaohongshu" onclick="shareSwitch('xiaohongshu')">📕 小红书</div>
+        <div class="share-ptab" data-platform="wechat" onclick="shareSwitch('wechat')">💬 公众号</div>
+        <div class="share-ptab" data-platform="weibo" onclick="shareSwitch('weibo')">🔥 微博</div>
+        <div class="share-ptab" data-platform="twitter" onclick="shareSwitch('twitter')">🐦 X/推特</div>
+      </div>
+      <div class="share-cw-box">
+        <div class="share-cw-text" id="shareCwText">加载中...</div>
+        <div class="share-cw-actions">
+          <button class="share-cw-btn share-cw-btn-regen" onclick="shareRegenCw()">🔄 换一个</button>
+          <button class="share-cw-btn share-cw-btn-copy" onclick="shareCopyCw()">📋 复制文案</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 设置弹出框 -->
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>⚙️ 设置</h2>
+      <button class="modal-close" onclick="closeSettingsModal()">✕</button>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">⏱️ 时间管理</div>
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-label">每日使用限额</div>
+          <div class="settings-row-desc">超过限额后会收到提醒</div>
+        </div>
+        <div class="settings-row-control">
+          <select class="settings-select" id="settingLimit">
+            <option value="30">30 分钟</option>
+            <option value="60">1 小时</option>
+            <option value="90">1.5 小时</option>
+            <option value="120">2 小时</option>
+            <option value="150">2.5 小时</option>
+            <option value="180">3 小时</option>
+            <option value="240">4 小时</option>
+            <option value="300">5 小时</option>
+            <option value="360">6 小时</option>
+            <option value="480">8 小时</option>
+          </select>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-label">预警阈值</div>
+          <div class="settings-row-desc">使用达到限额的多少比例时首次提醒</div>
+        </div>
+        <div class="settings-row-control">
+          <select class="settings-select" id="settingWarning">
+            <option value="50">50%</option>
+            <option value="60">60%</option>
+            <option value="70">70%</option>
+            <option value="80">80%</option>
+            <option value="90">90%</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">🔔 提醒设置</div>
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-label">定时弹窗提醒</div>
+          <div class="settings-row-desc">每隔一段时间弹出提醒框，需手动关闭</div>
+        </div>
+        <div class="settings-row-control">
+          <label class="settings-toggle">
+            <input type="checkbox" id="settingPeriodicEnabled">
+            <div class="settings-toggle-track"></div>
+            <div class="settings-toggle-thumb"></div>
+          </label>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-label">弹窗间隔</div>
+          <div class="settings-row-desc">多久弹出一次阻塞式提醒</div>
+        </div>
+        <div class="settings-row-control">
+          <select class="settings-select" id="settingPeriodicInterval">
+            <option value="15">15 分钟</option>
+            <option value="20">20 分钟</option>
+            <option value="30">30 分钟</option>
+            <option value="45">45 分钟</option>
+            <option value="60">60 分钟</option>
+            <option value="90">90 分钟</option>
+            <option value="120">120 分钟</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">🛡️ 严格模式</div>
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-label">启用严格模式</div>
+          <div class="settings-row-desc">开启后，超出限额仍在使用 AI 时，会持续发送系统通知提醒直到你停止</div>
+        </div>
+        <div class="settings-row-control">
+          <label class="settings-toggle">
+            <input type="checkbox" id="settingStrict">
+            <div class="settings-toggle-track"></div>
+            <div class="settings-toggle-thumb"></div>
+          </label>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-label">超限提醒间隔</div>
+          <div class="settings-row-desc">严格模式下，每隔多久发送一次「你还在用 AI」的通知</div>
+        </div>
+        <div class="settings-row-control">
+          <select class="settings-select" id="settingRemindInterval">
+            <option value="5">5 分钟</option>
+            <option value="10">10 分钟</option>
+            <option value="15">15 分钟</option>
+            <option value="30">30 分钟</option>
+            <option value="60">60 分钟</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-save-row">
+      <button class="settings-save-btn settings-save-btn-secondary" onclick="closeSettingsModal()">取消</button>
+      <button class="settings-save-btn settings-save-btn-primary" onclick="saveSettings()">💾 保存设置</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="share-toast" id="shareToast"></div>
+
+<!-- 主题切换按钮 -->
+<div class="theme-toggle" id="themeToggle" title="切换主题">
+  <svg viewBox="0 0 24 24" id="themeIcon">
+    <!-- 默认显示月亮图标（暗黑模式） -->
+    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+  </svg>
+</div>
+
+<script>
+const API_BASE = window.location.origin;
+
+// 主题管理
+let currentTheme = 'dark';
+
+function initTheme() {
+  // 从服务器加载主题配置
+  fetch(API_BASE + '/api/config')
+    .then(r => r.json())
+    .then(config => {
+      currentTheme = config.theme || 'dark';
+      applyTheme(currentTheme);
+    })
+    .catch(() => {
+      // 如果加载失败，使用默认暗黑主题
+      applyTheme('dark');
+    });
+}
+
+function applyTheme(theme) {
+  currentTheme = theme;
+  document.documentElement.setAttribute('data-theme', theme === 'tencent-blue' ? 'tencent-blue' : '');
+  updateThemeIcon(theme);
+}
+
+function updateThemeIcon(theme) {
+  const icon = document.getElementById('themeIcon');
+  if (theme === 'tencent-blue') {
+    // 太阳图标（浅色模式）
+    icon.innerHTML = '<circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>';
+  } else {
+    // 月亮图标（暗黑模式）
+    icon.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>';
+  }
+}
+
+function toggleTheme() {
+  const newTheme = currentTheme === 'dark' ? 'tencent-blue' : 'dark';
+  applyTheme(newTheme);
+  
+  // 保存到服务器
+  fetch(API_BASE + '/api/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ theme: newTheme })
+  }).catch(() => {
+    console.log('Failed to save theme');
+  });
+}
+
+// 绑定主题切换按钮
+document.addEventListener('DOMContentLoaded', () => {
+  const themeToggle = document.getElementById('themeToggle');
+  if (themeToggle) {
+    themeToggle.addEventListener('click', toggleTheme);
+  }
+  initTheme();
+});
+
+function fmtDuration(secs) {
+  secs = Math.max(0, Math.round(secs));
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+
+function fmtMinutes(min) {
+  min = Math.round(min);
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (h > 0 && m > 0) return `${h}小时${m}分钟`;
+  if (h > 0) return `${h}小时`;
+  return `${m}分钟`;
+}
+
+function fmtDate(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const diff = Math.round((today - d) / 86400000);
+  if (diff === 0) return '今天';
+  if (diff === 1) return '昨天';
+  return `${d.getMonth()+1}/${d.getDate()}`;
+}
+
+function getDateStr(daysAgo) {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  // 使用本地时间而非 UTC，避免时区偏移导致日期 key 不匹配
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function parseLocalDate(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function fmtMonthLabel(dateStr) {
+  const d = parseLocalDate(dateStr);
+  return `${d.getMonth() + 1}月`;
+}
+
+function buildTrendSeries(history, days, limitSec) {
+  // 14 天按日，30 天按双日聚合，90 天按周，365 天按月，避免过宽图表
+  if (days <= 14) {
+    const daily = [];
+    let maxSec = limitSec;
+    for (let i = days - 1; i >= 0; i--) {
+      const key = getDateStr(i);
+      const sec = getTotal(history[key]);
+      daily.push({ label: fmtDate(key), sec, isToday: i === 0, isOver: sec > limitSec });
+      if (sec > maxSec) maxSec = sec;
+    }
+    return { title: `最近 ${days} 天使用时长`, points: daily, maxSec };
+  }
+
+  if (days <= 30) {
+    const biDaily = [];
+    let maxSec = limitSec;
+    let cursor = days - 1;
+    while (cursor >= 0) {
+      const end = cursor;
+      const start = Math.max(0, cursor - 1);
+      let sumSec = 0;
+      for (let i = end; i >= start; i--) {
+        sumSec += getTotal(history[getDateStr(i)]);
+      }
+      const startKey = getDateStr(end);
+      const endKey = getDateStr(start);
+      const startDate = parseLocalDate(startKey);
+      const endDate = parseLocalDate(endKey);
+      const sameMonth = startDate.getMonth() === endDate.getMonth();
+      const label = sameMonth
+        ? `${startDate.getMonth() + 1}/${String(startDate.getDate()).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`
+        : `${startDate.getMonth() + 1}/${String(startDate.getDate()).padStart(2, '0')}-${endDate.getMonth() + 1}/${String(endDate.getDate()).padStart(2, '0')}`;
+      biDaily.push({
+        label,
+        sec: sumSec,
+        isToday: start === 0,
+        isOver: false,
+      });
+      if (sumSec > maxSec) maxSec = sumSec;
+      cursor = start - 1;
+    }
+    return { title: `最近 ${days} 天（双日聚合）`, points: biDaily, maxSec };
+  }
+
+  if (days <= 120) {
+    const weekly = [];
+    let maxSec = limitSec;
+    let cursor = days - 1;
+    while (cursor >= 0) {
+      const end = cursor;
+      const start = Math.max(0, cursor - 6);
+      let sumSec = 0;
+      for (let i = end; i >= start; i--) {
+        sumSec += getTotal(history[getDateStr(i)]);
+      }
+      const startKey = getDateStr(end);
+      const endKey = getDateStr(start);
+      weekly.push({
+        label: `${startKey.slice(5)}~${endKey.slice(5)}`,
+        sec: sumSec,
+        isToday: start === 0,
+        isOver: false,
+      });
+      if (sumSec > maxSec) maxSec = sumSec;
+      cursor = start - 1;
+    }
+    return { title: `最近 ${days} 天（按周聚合）`, points: weekly, maxSec };
+  }
+
+  const monthMap = new Map();
+  let maxSec = limitSec;
+  for (let i = days - 1; i >= 0; i--) {
+    const key = getDateStr(i);
+    const ym = key.slice(0, 7);
+    monthMap.set(ym, (monthMap.get(ym) || 0) + getTotal(history[key]));
+  }
+  const monthly = Array.from(monthMap.entries()).map(([month, sec]) => {
+    const label = fmtMonthLabel(`${month}-01`);
+    if (sec > maxSec) maxSec = sec;
+    return { label, sec, isToday: false, isOver: false };
+  });
+  return { title: `最近 ${days} 天（按月聚合）`, points: monthly, maxSec };
+}
+
+// 工具对应颜色 - 适配双主题
+const TOOL_COLORS = {
+  'CodeBuddy': '#6c5ce7',
+  'WorkBuddy': '#8e44ad',
+  'Cursor': '#5f27cd',
+  'Claude Code': '#00b894',
+  'Claude Internal': '#00cec9',
+  'Gemini': '#e17055',
+  'Gemini Internal': '#fdcb6e',
+  'Codex': '#0984e3',
+  'Codex Internal': '#74b9ff',
+  'Kimi': '#FF6B9D',
+  'Antigravity': '#E8710A',
+  'Obsidian + AI': '#7C3AED',
+  'Notion + AI': '#F5B041',
+  '笔记 + AI': '#A569BD',
+  '其他': '#636e72',
+};
+function getToolColor(name) {
+  return TOOL_COLORS[name] || '#74b9ff';
+}
+
+// 兼容新旧 history 格式：提取总秒数
+function getTotal(entry) {
+  if (entry == null) return 0;
+  if (typeof entry === 'number') return entry;
+  if (typeof entry === 'object') return entry.total || 0;
+  return 0;
+}
+
+// 提取工具分类数据
+function getTools(entry) {
+  if (entry == null) return {};
+  if (typeof entry === 'object' && entry.tools) return entry.tools;
+  return {};
+}
+
+let trendDays = 14;
+let heatmapDays = 30;
+let latestData = null; // { report, monthly, yearly }
+
+function setTrendDays(days) {
+  trendDays = days;
+  document.querySelectorAll('#trendRange .range-chip').forEach((el) => {
+    el.classList.toggle('active', Number(el.dataset.days) === days);
+  });
+  if (latestData) render(latestData);
+}
+
+function setHeatmapDays(days) {
+  heatmapDays = days;
+  document.querySelectorAll('#heatmapRange .range-chip').forEach((el) => {
+    el.classList.toggle('active', Number(el.dataset.heatdays) === days);
+  });
+  if (latestData) render(latestData);
+}
+
+async function fetchData() {
+  try {
+    const reportResp = await fetch(API_BASE + '/api/report');
+    if (!reportResp.ok) {
+      throw new Error('report api not available');
+    }
+    const report = await reportResp.json();
+
+    let monthly = { monthly: [] };
+    let yearly = { yearly: [] };
+    try {
+      const monthlyResp = await fetch(API_BASE + '/api/summary/monthly?months=12');
+      if (monthlyResp.ok) monthly = await monthlyResp.json();
+    } catch (_) {}
+    try {
+      const yearlyResp = await fetch(API_BASE + '/api/summary/yearly?years=3');
+      if (yearlyResp.ok) yearly = await yearlyResp.json();
+    } catch (_) {}
+
+    return { report, monthly, yearly };
+  } catch(e) {
+    console.error('Fetch error:', e);
+    return null;
+  }
+}
+
+function render(data) {
+  if (!data) return;
+  const { report, monthly, yearly } = data;
+  const { history, config, status } = report;
+  const limitSec = (config.daily_limit_minutes || 180) * 60;
+  const today = getDateStr(0);
+  // 优先使用实时的 today_seconds，比 history 更准确
+  const todaySec = status.today_seconds || getTotal(history[today]);
+  const todayTools = status.today_tools || getTools(history[today]);
+  // 同步到 history 以便图表和热力图也能显示
+  history[today] = { total: todaySec, tools: todayTools };
+  const remainSec = Math.max(0, limitSec - todaySec);
+  const pct = Math.min(100, (todaySec / limitSec) * 100);
+
+  // 状态
+  const statusEl = document.getElementById('statusText');
+  const dotEl = document.getElementById('liveDot');
+  if (status.is_active) {
+    statusEl.textContent = status.detail || 'AI 使用中';
+    dotEl.style.background = 'var(--green)';
+  } else if (!status.is_monitoring) {
+    statusEl.textContent = '监控已暂停';
+    dotEl.style.background = 'var(--orange)';
+  } else {
+    statusEl.textContent = 'AI 未在使用';
+    dotEl.style.background = 'var(--text2)';
+    dotEl.style.animation = 'none';
+  }
+
+  // 概览卡片
+  document.getElementById('todayUsed').textContent = fmtDuration(todaySec);
+  document.getElementById('todaySub').textContent =
+    todaySec >= limitSec ? `已超出 ${fmtMinutes((todaySec - limitSec)/60)}` : '正常';
+
+  document.getElementById('remaining').textContent = fmtDuration(remainSec);
+  document.getElementById('remainSub').textContent =
+    `限额 ${fmtMinutes(config.daily_limit_minutes)}`;
+
+  // 7日平均
+  let sum7 = 0;
+  for (let i = 0; i < 7; i++) sum7 += getTotal(history[getDateStr(i)]);
+  const avg7sec = sum7 / 7;
+  document.getElementById('avg7').textContent = fmtDuration(avg7sec);
+  document.getElementById('avg7Sub').textContent = `7日总计 ${fmtDuration(sum7)}`;
+
+  // 30日总计
+  let sum30 = 0, activeDays = 0;
+  for (let i = 0; i < 30; i++) {
+    const s = getTotal(history[getDateStr(i)]);
+    sum30 += s;
+    if (s > 60) activeDays++;
+  }
+  document.getElementById('total30').textContent = fmtDuration(sum30);
+  document.getElementById('total30Sub').textContent = `活跃 ${activeDays} 天`;
+
+  // 进度条
+  document.getElementById('progressPct').textContent = `${Math.round(pct)}%`;
+  const bar = document.getElementById('progressBar');
+  bar.style.width = Math.min(100, pct) + '%';
+  bar.className = 'progress-bar-fill' +
+    (pct >= 100 ? ' danger' : pct >= 80 ? ' warning' : '');
+  document.getElementById('limitLabel').textContent =
+    `限额: ${fmtMinutes(config.daily_limit_minutes)}`;
+
+  // ─── 工具使用分布 ───
+  const toolSection = document.getElementById('toolBreakdown');
+  const toolBarEl = document.getElementById('toolBar');
+  const toolLegendEl = document.getElementById('toolLegend');
+  // 构建工具列表
+  const toolEntries = Object.entries(todayTools).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  if (toolEntries.length > 0 && todaySec > 0) {
+    toolSection.style.display = '';
+    toolBarEl.innerHTML = '';
+    toolLegendEl.innerHTML = '';
+    toolEntries.forEach(([name, sec]) => {
+      const pctTool = todaySec > 0 ? (sec / todaySec * 100) : 0;
+      // 色条
+      const seg = document.createElement('div');
+      seg.className = 'tool-bar-segment';
+      seg.style.width = pctTool + '%';
+      seg.style.background = getToolColor(name);
+      seg.title = `${name}: ${fmtDuration(sec)} (${Math.round(pctTool)}%)`;
+      toolBarEl.appendChild(seg);
+      // 图例
+      const item = document.createElement('div');
+      item.className = 'tool-legend-item';
+      item.innerHTML = `<div class="tool-legend-dot" style="background:${getToolColor(name)}"></div>`
+        + `<span class="tool-legend-name">${name}</span>`
+        + `<span class="tool-legend-value">${fmtDuration(sec)}</span>`
+        + `<span class="tool-legend-pct">(${Math.round(pctTool)}%)</span>`;
+      toolLegendEl.appendChild(item);
+    });
+  } else {
+    toolSection.style.display = 'none';
+  }
+
+  // 趋势柱状图（自动按日/周/月聚合）
+  const barChart = document.getElementById('barChart');
+  const trendTitle = document.getElementById('trendTitle');
+  barChart.innerHTML = '';
+  const trend = buildTrendSeries(history, trendDays, limitSec);
+  trendTitle.textContent = trend.title;
+  trend.points.forEach((d, index) => {
+    const heightPct = trend.maxSec > 0 ? (d.sec / trend.maxSec) * 100 : 0;
+    const limitPct = trend.maxSec > 0 ? (limitSec / trend.maxSec) * 100 : 0;
+    const group = document.createElement('div');
+    group.className = 'bar-group';
+
+    const val = document.createElement('div');
+    val.className = 'bar-value';
+    val.textContent = d.sec >= 60 ? fmtDuration(d.sec) : '';
+
+    const b = document.createElement('div');
+    b.className = 'bar ' + (d.isToday ? 'today' : d.isOver ? 'over' : 'normal');
+    b.style.height = Math.max(4, heightPct) + '%';
+
+    if (d.isToday) {
+      const line = document.createElement('div');
+      line.className = 'bar-limit-line';
+      line.style.bottom = limitPct + '%';
+      b.appendChild(line);
+    }
+
+    const lbl = document.createElement('div');
+    lbl.className = 'bar-label';
+    lbl.textContent = d.label;
+    const denseMode = trend.points.length >= 18;
+    if (denseMode) {
+      const keepLabel = (index % 3 === 0) || index === trend.points.length - 1;
+      if (!keepLabel) lbl.textContent = '';
+    }
+
+    group.appendChild(val);
+    group.appendChild(b);
+    group.appendChild(lbl);
+    barChart.appendChild(group);
+  });
+
+  // 统计摘要
+  const summaryList = document.getElementById('summaryList');
+  // 找最高日
+  let maxDay = '', maxDaySec = 0;
+  for (let i = 0; i < 30; i++) {
+    const k = getDateStr(i);
+    const s = getTotal(history[k]);
+    if (s > maxDaySec) {
+      maxDaySec = s;
+      maxDay = k;
+    }
+  }
+  // 超限天数
+  let overDays = 0;
+  for (let i = 0; i < 30; i++) {
+    if (getTotal(history[getDateStr(i)]) > limitSec) overDays++;
+  }
+  // 连续天数
+  let streak = 0;
+  for (let i = 0; i < 30; i++) {
+    if (getTotal(history[getDateStr(i)]) > 60) streak++;
+    else break;
+  }
+  // 汇总所有工具在 30 天的使用情况
+  const allToolTotals = {};
+  for (let i = 0; i < 30; i++) {
+    const tools = getTools(history[getDateStr(i)]);
+    for (const [name, sec] of Object.entries(tools)) {
+      allToolTotals[name] = (allToolTotals[name] || 0) + sec;
+    }
+  }
+  const toolEntries30d = Object.entries(allToolTotals).sort((a,b) => b[1]-a[1]);
+  const totalTool30dSec = toolEntries30d.reduce((s, [,v]) => s + v, 0);
+
+  const items = [
+    { label: '每日限额', value: fmtMinutes(config.daily_limit_minutes) },
+    { label: '定时提醒', value: config.periodic_alert_enabled !== false ? `每${fmtMinutes(config.periodic_alert_minutes || 30)}` : '已关闭' },
+    { label: '最高单日', value: maxDaySec > 0 ? `${fmtDuration(maxDaySec)} (${fmtDate(maxDay)})` : '无记录' },
+    { label: '超限天数', value: `${overDays} / 30 天` },
+    { label: '连续使用', value: `${streak} 天` },
+  ];
+  summaryList.innerHTML = items.map(it =>
+    `<li><span class="label">${it.label}</span><span class="value">${it.value}</span></li>`
+  ).join('');
+
+  // 30 日工具分布（独立可视化卡片）
+  const tool30dSection = document.getElementById('tool30dSection');
+  const tool30dList = document.getElementById('tool30dList');
+  if (toolEntries30d.length > 0 && totalTool30dSec > 0) {
+    tool30dSection.style.display = '';
+    const maxToolSec = toolEntries30d[0][1];
+    tool30dList.innerHTML = toolEntries30d.map(([name, sec]) => {
+      const pct = maxToolSec > 0 ? (sec / maxToolSec * 100) : 0;
+      const pctTotal = totalTool30dSec > 0 ? (sec / totalTool30dSec * 100) : 0;
+      return `<div class="tool-30d-row">
+        <div class="tool-30d-name">${name}</div>
+        <div class="tool-30d-bar-bg"><div class="tool-30d-bar-fill" style="width:${pct}%;background:${getToolColor(name)}"></div></div>
+        <div class="tool-30d-time">${fmtDuration(sec)}</div>
+        <div class="tool-30d-pct">${pctTotal.toFixed(0)}%</div>
+      </div>`;
+    }).join('');
+  } else {
+    tool30dSection.style.display = 'none';
+  }
+
+  // 热力图（30 天紧凑网格 / 365 天周历网格）
+  const heatmap = document.getElementById('heatmap');
+  const heatmapTitle = document.getElementById('heatmapTitle');
+  heatmap.classList.toggle('yearly', heatmapDays >= 365);
+  heatmap.innerHTML = '';
+  heatmapTitle.textContent = `最近 ${heatmapDays} 天活跃热力图`;
+  // 找最大值用于归一化
+  let heatMax = 0;
+  for (let i = 0; i < heatmapDays; i++) {
+    const s = getTotal(history[getDateStr(i)]);
+    if (s > heatMax) heatMax = s;
+  }
+  // 根据当前主题选择热力图颜色
+  const isTencentBlue = currentTheme === 'tencent-blue';
+  const heatmapColor = isTencentBlue ? '0,82,217' : '108,92,231';
+  
+  const dayItems = [];
+  for (let i = heatmapDays - 1; i >= 0; i--) {
+    const key = getDateStr(i);
+    dayItems.push({ key, sec: getTotal(history[key]), tools: getTools(history[key]) });
+  }
+  // 年度模式按周历固定为 53 列 x 7 行，避免无限横向拉伸
+  if (heatmapDays >= 365) {
+    const grid = Array.from({ length: 53 * 7 }, () => null);
+    dayItems.forEach((item) => {
+      const d = parseLocalDate(item.key);
+      const week = Math.floor((heatmapDays - 1 - Math.round((parseLocalDate(getDateStr(0)) - d) / 86400000)) / 7);
+      const weekday = (d.getDay() + 6) % 7; // 周一=0
+      const idx = weekday * 53 + week;
+      if (idx >= 0 && idx < grid.length) grid[idx] = item;
+    });
+    grid.forEach((item) => {
+      const cell = document.createElement('div');
+      cell.className = 'heatmap-cell';
+      if (!item) {
+        cell.style.background = 'var(--heatmap-empty)';
+        heatmap.appendChild(cell);
+        return;
+      }
+      const intensity = heatMax > 0 ? item.sec / heatMax : 0;
+      let alpha;
+      if (item.sec < 60) alpha = isTencentBlue ? 0.08 : 0.04;
+      else if (intensity < 0.2) alpha = isTencentBlue ? 0.25 : 0.15;
+      else if (intensity < 0.4) alpha = isTencentBlue ? 0.45 : 0.3;
+      else if (intensity < 0.6) alpha = isTencentBlue ? 0.65 : 0.55;
+      else if (intensity < 0.8) alpha = isTencentBlue ? 0.85 : 0.8;
+      else alpha = 1;
+      cell.style.background = `rgba(${heatmapColor},${alpha})`;
+      const tooltip = document.createElement('div');
+      tooltip.className = 'tooltip';
+      const toolDetail = Object.entries(item.tools).filter(([, v]) => v > 0)
+        .map(([n, v]) => `${n} ${fmtDuration(v)}`).join(' / ');
+      tooltip.textContent = `${item.key}: ${item.sec >= 60 ? fmtDuration(item.sec) : '无使用'}`
+        + (toolDetail ? `\n${toolDetail}` : '');
+      cell.appendChild(tooltip);
+      heatmap.appendChild(cell);
+    });
+  } else {
+    dayItems.forEach((item) => {
+      const intensity = heatMax > 0 ? item.sec / heatMax : 0;
+      const cell = document.createElement('div');
+      cell.className = 'heatmap-cell';
+      let alpha;
+      if (item.sec < 60) alpha = isTencentBlue ? 0.08 : 0.04;
+      else if (intensity < 0.2) alpha = isTencentBlue ? 0.25 : 0.15;
+      else if (intensity < 0.4) alpha = isTencentBlue ? 0.45 : 0.3;
+      else if (intensity < 0.6) alpha = isTencentBlue ? 0.65 : 0.55;
+      else if (intensity < 0.8) alpha = isTencentBlue ? 0.85 : 0.8;
+      else alpha = 1;
+      cell.style.background = `rgba(${heatmapColor},${alpha})`;
+      const tooltip = document.createElement('div');
+      tooltip.className = 'tooltip';
+      const toolDetail = Object.entries(item.tools).filter(([, v]) => v > 0)
+        .map(([n, v]) => `${n} ${fmtDuration(v)}`).join(' / ');
+      tooltip.textContent = `${item.key}: ${item.sec >= 60 ? fmtDuration(item.sec) : '无使用'}`
+        + (toolDetail ? `\n${toolDetail}` : '');
+      cell.appendChild(tooltip);
+      heatmap.appendChild(cell);
+    });
+  }
+  
+  // 更新热力图图例颜色
+  const legendColor = isTencentBlue ? '0,82,217' : '108,92,231';
+  const legendAlphas = isTencentBlue ? [0.15, 0.35, 0.55, 0.75, 1] : [0.1, 0.3, 0.55, 0.8, 1];
+  for (let i = 0; i < 5; i++) {
+    const legendEl = document.getElementById(`legend${i+1}`);
+    if (legendEl) {
+      legendEl.style.background = `rgba(${legendColor},${legendAlphas[i]})`;
+    }
+  }
+
+  // ─── 资源监控 ───
+  const resourceSection = document.getElementById('resourceSection');
+  const resourceList = document.getElementById('resourceList');
+  const resources = status.resources || [];
+
+  if (resources.length > 0) {
+    resourceSection.style.display = '';
+    // 按工具类型汇聚
+    const aggregated = {};
+    resources.forEach(r => {
+      if (!aggregated[r.tool]) {
+        aggregated[r.tool] = {
+          tool: r.tool,
+          count: 0,
+          cpu_percent: 0,
+          memory_mb: 0,
+          memory_percent: 0,
+          pids: []
+        };
+      }
+      aggregated[r.tool].count += 1;
+      aggregated[r.tool].cpu_percent += r.cpu_percent;
+      aggregated[r.tool].memory_mb += r.memory_mb;
+      aggregated[r.tool].memory_percent += r.memory_percent;
+      aggregated[r.tool].pids.push(r.pid);
+    });
+
+    // 转换为数组并排序（按内存使用降序）
+    const sorted = Object.values(aggregated).sort((a, b) => b.memory_mb - a.memory_mb);
+
+    resourceList.innerHTML = sorted.map(r => {
+      const cpuWidth = Math.min(100, r.cpu_percent);
+      const memWidth = Math.min(100, r.memory_percent);
+      const pidText = r.count > 1 ? `${r.count} 个进程` : `PID: ${r.pids[0]}`;
+      return `
+        <div class="resource-item">
+          <div class="resource-info">
+            <div class="resource-dot" style="background: ${getToolColor(r.tool)}"></div>
+            <span class="resource-name">${r.tool}</span>
+            <span class="resource-pid">${pidText}</span>
+          </div>
+          <div class="resource-metrics">
+            <div class="resource-metric">
+              <div class="resource-metric-value">${r.cpu_percent.toFixed(1)}%</div>
+              <div class="resource-metric-label">CPU</div>
+            </div>
+            <div class="resource-bar-bg">
+              <div class="resource-bar-fill cpu" style="width: ${cpuWidth}%"></div>
+            </div>
+            <div class="resource-metric">
+              <div class="resource-metric-value">${r.memory_mb.toFixed(1)} MB</div>
+              <div class="resource-metric-label">内存</div>
+            </div>
+            <div class="resource-bar-bg">
+              <div class="resource-bar-fill mem" style="width: ${memWidth}%"></div>
+            </div>
+            <div class="resource-metric">
+              <div class="resource-metric-value">${r.memory_percent.toFixed(2)}%</div>
+              <div class="resource-metric-label">内存占比</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } else {
+    resourceSection.style.display = '';
+    resourceList.innerHTML = '<div class="resource-empty">暂无运行中的 AI 工具进程</div>';
+  }
+
+  // 年度总览（最近 3 年）
+  const yearlyGrid = document.getElementById('yearlyGrid');
+  const yearlyItems = (yearly && yearly.yearly) ? yearly.yearly : [];
+  if (yearlyItems.length > 0) {
+    yearlyGrid.innerHTML = yearlyItems.map((y) => {
+      const compliance = y.days_count > 0
+        ? Math.round(((y.days_count - y.over_limit_days) / y.days_count) * 100)
+        : 100;
+      return `<div class="year-card">
+        <h4>${y.year} 年</h4>
+        <div class="v">${fmtDuration(y.total_seconds)}</div>
+        <div class="s">活跃 ${y.active_days} 天</div>
+        <div class="s">超限 ${y.over_limit_days} 天，达标率 ${compliance}%</div>
+      </div>`;
+    }).join('');
+  } else {
+    yearlyGrid.innerHTML = '<div class="resource-empty">暂无年度统计数据</div>';
+  }
+}
+
+// 俏皮名言随机切换
+const quotes = [
+  '💡 写代码是为了改变世界，不是为了让 AI Coding 改变你的作息',
+  '🧘 AI Coding 再爽也替不了你站起来喝杯水的那几分钟',
+  '🌿 Ctrl+S 保存代码，Ctrl+休息 保存自己',
+  '☕ 连 AI 都需要 cooldown，何况是你呢？',
+  '🎯 高效不等于长时间，聪明的程序员懂得按下暂停键',
+  '🧠 你的大脑比 GPU 更需要散热',
+  '🌙 熬夜 AI Coding 一时爽，明天对着屏幕两眼茫',
+  '🏃 Bug 可以明天修，但健康不能明天补',
+  '🤖 AI Coding 是工具，不是氧气，离开一会儿不会窒息的',
+  '🎮 给自己的脑子也来个 garbage collection 吧',
+];
+function randomQuote() {
+  const el = document.getElementById('headerQuote');
+  if (el) el.textContent = quotes[Math.floor(Math.random() * quotes.length)];
+}
+randomQuote();
+
+// 首次加载 + 自动刷新
+(async function loop() {
+  // 先加载主题配置
+  await initTheme();
+  
+  const data = await fetchData();
+  latestData = data;
+  render(data);
+
+  setInterval(async () => {
+    const d = await fetchData();
+    latestData = d;
+    render(d);
+    randomQuote();
+  }, 30000);
+})();
+// ─── 分享 Modal ───
+let shareRange = '7';
+let sharePickedDate = null;
+let sharePlatform = 'xiaohongshu';
+
+function openShareModal() {
+  document.getElementById('shareModal').classList.add('show');
+  document.body.style.overflow = 'hidden';
+  // 初始化日期选择器
+  const dp = document.getElementById('shareDatePicker');
+  dp.max = getDateStr(0);
+  dp.value = getDateStr(0);
+  shareRefreshCard();
+}
+
+function closeShareModal() {
+  document.getElementById('shareModal').classList.remove('show');
+  document.body.style.overflow = '';
+}
+
+// 点击遮罩关闭
+document.getElementById('shareModal').addEventListener('click', function(e) {
+  if (e.target === this) closeShareModal();
+});
+
+function shareSetRange(range) {
+  shareRange = range;
+  document.querySelectorAll('.share-range-btn').forEach(b => b.classList.toggle('active', b.dataset.range === range));
+  const dateRow = document.getElementById('shareDateRow');
+  if (range === 'pick') {
+    dateRow.style.display = 'flex';
+    if (!sharePickedDate) {
+      document.getElementById('shareDatePicker').value = getDateStr(0);
+      sharePickedDate = getDateStr(0);
+    }
+  } else {
+    dateRow.style.display = 'none';
+    sharePickedDate = null;
+  }
+  shareRefreshCard();
+}
+
+function shareOnPickDate() {
+  const val = document.getElementById('shareDatePicker').value;
+  if (val) { sharePickedDate = val; shareRefreshCard(); }
+}
+
+function shareGetDateKeys() {
+  if (shareRange === 'pick' && sharePickedDate) return [sharePickedDate];
+  const n = parseInt(shareRange) || 7;
+  const keys = [];
+  for (let i = n - 1; i >= 0; i--) keys.push(getDateStr(i));
+  return keys;
+}
+
+function shareGetRangeLabel() {
+  if (shareRange === 'pick' && sharePickedDate) { const d = new Date(sharePickedDate + 'T00:00:00'); return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`; }
+  const n = parseInt(shareRange) || 7;
+  if (n === 1) return '今天';
+  return `最近 ${n} 天`;
+}
+
+function shareGetRangeLabelShort() {
+  if (shareRange === 'pick' && sharePickedDate) { const d = new Date(sharePickedDate + 'T00:00:00'); return `${d.getMonth()+1}/${d.getDate()}`; }
+  const n = parseInt(shareRange) || 7;
+  if (n === 1) return '今日'; if (n === 3) return '3日'; if (n === 7) return '本周'; if (n === 14) return '两周'; if (n === 30) return '本月';
+  return `${n}天`;
+}
+
+function shareGetRank(avgMin) {
+  if (avgMin < 30) return { name: '🌱 AI 轻度用户', cls: 'rank-green', desc: '自律典范' };
+  if (avgMin < 60) return { name: '⚡ AI 效率达人', cls: 'rank-blue', desc: '张弛有度' };
+  if (avgMin < 120) return { name: '🔥 AI 深度玩家', cls: 'rank-orange', desc: '沉浸其中' };
+  if (avgMin < 240) return { name: '💎 AI 重度依赖', cls: 'rank-purple', desc: '人机共生' };
+  return { name: '🚨 AI 不眠战士', cls: 'rank-red', desc: '请注意休息！' };
+}
+
+function shareCalcScore(history, config, dateKeys) {
+  const limitSec = (config.daily_limit_minutes || 180) * 60;
+  let score = 100, overCount = 0;
+  dateKeys.forEach(k => { const sec = getTotal(history[k]); if (sec > limitSec) { overCount++; score -= Math.min(15, ((sec - limitSec) / limitSec) * 20); } });
+  score -= overCount * 3;
+  return Math.max(0, Math.round(score));
+}
+
+function shareGetScoreLabel(s) {
+  if (s >= 90) return 'S 极佳'; if (s >= 80) return 'A 优秀'; if (s >= 70) return 'B 良好'; if (s >= 60) return 'C 一般'; return 'D 需改善';
+}
+
+function shareFmtDate(ds) { const d = new Date(ds + 'T00:00:00'); return `${d.getMonth()+1}/${d.getDate()}`; }
+function shareFmtFullDate(ds) { const d = new Date(ds + 'T00:00:00'); return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`; }
+
+function shareRefreshCard() {
+  if (!latestData) return;
+  const { history, config, status } = latestData.report;
+  const limitSec = (config.daily_limit_minutes || 180) * 60;
+  const dateKeys = shareGetDateKeys();
+  const numDays = dateKeys.length;
+  const isSingle = numDays === 1;
+  const today = getDateStr(0);
+
+  let totalSec = 0, activeDays = 0, maxSec = 0, maxDay = '';
+  const allTools = {};
+  const daysList = [];
+  dateKeys.forEach(key => {
+    const sec = getTotal(history[key]);
+    daysList.push({ key, sec });
+    totalSec += sec;
+    if (sec > 60) activeDays++;
+    if (sec > maxSec) { maxSec = sec; maxDay = key; }
+    const tools = getTools(history[key]);
+    for (const [name, s] of Object.entries(tools)) allTools[name] = (allTools[name] || 0) + s;
+  });
+  const avgSec = numDays > 0 ? totalSec / numDays : 0;
+  const avgMin = isSingle ? totalSec / 60 : avgSec / 60;
+  const rank = shareGetRank(avgMin);
+  const score = shareCalcScore(history, config, dateKeys);
+
+  // Hero
+  if (isSingle) {
+    const isToday = dateKeys[0] === today;
+    document.getElementById('scHeroLabel').textContent = isToday ? '今日 AI 使用时长' : `${shareFmtFullDate(dateKeys[0])} 使用时长`;
+  } else {
+    document.getElementById('scHeroLabel').textContent = `${shareGetRangeLabel()} AI 使用总时长`;
+  }
+  document.getElementById('scHeroValue').textContent = fmtDuration(totalSec);
+  document.getElementById('scHeroUnit').textContent = isSingle ? `限额 ${fmtMinutes(limitSec / 60)}` : `日均 ${fmtMinutes(avgSec / 60)}`;
+  document.getElementById('scRankBadge').innerHTML = `<div class="sc-rank ${rank.cls}">${rank.name}</div>`;
+
+  // Stats
+  const statsEl = document.getElementById('scStats');
+  const avgCard = document.getElementById('scStatAvgCard');
+  if (isSingle) {
+    avgCard.style.display = 'none';
+    statsEl.classList.add('cols-3');
+    document.getElementById('scStatDaysLabel').textContent = '使用占比';
+    const pct = limitSec > 0 ? Math.round(totalSec / limitSec * 100) : 0;
+    document.getElementById('scStatDays').textContent = `${pct}%`;
+    document.getElementById('scStatDaysSub').textContent = pct >= 100 ? '已超限' : '限额内';
+    document.getElementById('scStatMaxLabel').textContent = '超限时间';
+    const overSec = Math.max(0, totalSec - limitSec);
+    document.getElementById('scStatMax').textContent = overSec > 0 ? fmtDuration(overSec) : '0';
+    document.getElementById('scStatMaxSub').textContent = overSec > 0 ? '超出限额' : '未超限';
+  } else {
+    avgCard.style.display = '';
+    statsEl.classList.remove('cols-3');
+    document.getElementById('scStatAvg').textContent = fmtDuration(avgSec);
+    document.getElementById('scStatAvgLabel').textContent = '日均使用';
+    document.getElementById('scStatAvgSub').textContent = rank.desc;
+    document.getElementById('scStatDaysLabel').textContent = '活跃天数';
+    document.getElementById('scStatDays').textContent = `${activeDays}/${numDays}`;
+    document.getElementById('scStatDaysSub').textContent = `近 ${numDays} 天`;
+    document.getElementById('scStatMaxLabel').textContent = '最高单日';
+    document.getElementById('scStatMax').textContent = fmtDuration(maxSec);
+    document.getElementById('scStatMaxSub').textContent = maxDay ? shareFmtDate(maxDay) : '';
+  }
+  document.getElementById('scStatScore').textContent = score;
+  document.getElementById('scStatScoreSub').textContent = shareGetScoreLabel(score);
+
+  // Tools
+  const toolEntries = Object.entries(allTools).sort((a,b) => b[1]-a[1]);
+  const scToolsEl = document.getElementById('scTools');
+  const scToolRows = document.getElementById('scToolRows');
+  if (toolEntries.length > 0) {
+    scToolsEl.style.display = '';
+    const maxToolSec = toolEntries[0][1];
+    scToolRows.innerHTML = toolEntries.slice(0, 5).map(([name, sec]) => {
+      const pct = maxToolSec > 0 ? (sec / maxToolSec * 100) : 0;
+      return `<div class="sc-tool-row"><div class="sc-tool-name">${name}</div><div class="sc-tool-bar-bg"><div class="sc-tool-bar-fill" style="width:${pct}%;background:${getToolColor(name)}"></div></div><div class="sc-tool-time">${fmtDuration(sec)}</div></div>`;
+    }).join('');
+  } else {
+    scToolsEl.style.display = 'none';
+  }
+
+  // Mini chart
+  const miniSection = document.getElementById('scMiniChart');
+  if (isSingle) {
+    miniSection.style.display = 'none';
+  } else {
+    miniSection.style.display = '';
+    document.getElementById('scMiniTitle').textContent = `📊 ${shareGetRangeLabel()}趋势`;
+    const maxBarSec = Math.max(limitSec, ...daysList.map(d => d.sec));
+    let displayDays = daysList;
+    if (daysList.length > 14) {
+      const step = Math.ceil(daysList.length / 14);
+      displayDays = daysList.filter((_, i) => i % step === 0 || i === daysList.length - 1);
+    }
+    document.getElementById('scMiniBars').innerHTML = displayDays.map((d, idx) => {
+      const heightPct = maxBarSec > 0 ? Math.max(3, d.sec / maxBarSec * 100) : 3;
+      const isLast = idx === displayDays.length - 1 && d.key === today;
+      const isOver = d.sec > limitSec;
+      const cls = isLast ? 'accent' : isOver ? 'over' : 'normal';
+      const label = d.key === today ? '今' : d.key === getDateStr(1) ? '昨' : shareFmtDate(d.key);
+      return `<div class="sc-mini-bar-group"><div class="sc-mini-bar ${cls}" style="height:${heightPct}%"></div><div class="sc-mini-bar-label">${label}</div></div>`;
+    }).join('');
+  }
+
+  // Footer
+  const now = new Date();
+  document.getElementById('scFooterDate').textContent = `${now.getFullYear()}/${String(now.getMonth()+1).padStart(2,'0')}/${String(now.getDate()).padStart(2,'0')}`;
+  const slogans = ['适度 AI Coding，健康生活 ✨','善用 AI，不被 AI 用 🎯','AI 是工具，你才是主角 🌟','自律的 Coder 最可爱 💪','高效写码，准时下班 🏠'];
+  document.getElementById('scFooterSlogan').textContent = slogans[Math.floor(Math.random() * slogans.length)];
+
+  // Range info
+  const infoEl = document.getElementById('shareRangeInfo');
+  if (isSingle) {
+    infoEl.textContent = `📌 ${dateKeys[0] === today ? '今天' : shareFmtFullDate(dateKeys[0])}的 AI 使用数据`;
+  } else {
+    infoEl.textContent = `📌 ${shareFmtFullDate(dateKeys[0])} ~ ${shareFmtFullDate(dateKeys[dateKeys.length-1])}，共 ${numDays} 天`;
+  }
+
+  shareGenCw();
+}
+
+// ─── 文案生成 ───
+function shareSwitch(p) {
+  sharePlatform = p;
+  document.querySelectorAll('.share-ptab').forEach(el => el.classList.toggle('active', el.dataset.platform === p));
+  shareGenCw();
+}
+function shareRegenCw() { shareGenCw(); }
+
+function shareGenCw() {
+  if (!latestData) return;
+  const { history, config } = latestData.report;
+  const limitSec = (config.daily_limit_minutes || 180) * 60;
+  const dateKeys = shareGetDateKeys();
+  const numDays = dateKeys.length;
+  const isSingle = numDays === 1;
+
+  let totalSec = 0, activeDays = 0, maxSec = 0, overDays = 0;
+  const allTools = {};
+  dateKeys.forEach(key => {
+    const sec = getTotal(history[key]); totalSec += sec;
+    if (sec > 60) activeDays++; if (sec > maxSec) maxSec = sec; if (sec > limitSec) overDays++;
+    const tools = getTools(history[key]);
+    for (const [n, s] of Object.entries(tools)) allTools[n] = (allTools[n] || 0) + s;
+  });
+  const avgSec = numDays > 0 ? totalSec / numDays : 0;
+  const avgMin = isSingle ? totalSec / 60 : avgSec / 60;
+  const rank = shareGetRank(avgMin);
+  const score = shareCalcScore(history, config, dateKeys);
+  const topTool = Object.entries(allTools).sort((a,b) => b[1]-a[1])[0];
+  const topName = topTool ? topTool[0] : 'AI';
+  const topTime = topTool ? fmtMinutes(topTool[1] / 60) : '--';
+  const rangeText = shareGetRangeLabel();
+  const shortRange = shareGetRangeLabelShort();
+  const periodWord = isSingle ? '今天' : (numDays <= 3 ? '这几天' : numDays <= 7 ? '这周' : numDays <= 14 ? '这两周' : '这个月');
+
+  const fmtHM = (secs) => { const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60); if (h > 0 && m > 0) return `${h}小时${m}分钟`; if (h > 0) return `${h}小时`; return `${m}分钟`; };
+
+  const templates = {
+    xiaohongshu: [
+      () => `🛡️ AI 自律打卡 | ${rangeText} AI 使用报告\n\n${periodWord}我${isSingle ? '' : '一共'}用了 ${fmtHM(totalSec)} 的 AI 工具\n${isSingle ? '' : `日均 ${fmtHM(avgSec)}，`}段位：${rank.name}\n自律评分 ${score} 分（${shareGetScoreLabel(score)}）\n\n📊 数据一览：\n🔧 最常用：${topName}（${topTime}）\n${isSingle ? `⏰ 限额：${fmtHM(limitSec)}` : `📅 活跃天数：${activeDays}/${numDays} 天`}\n${!isSingle ? `⚡ 最高单日：${fmtHM(maxSec)}\n` : ''}${overDays > 0 ? `⚠️ 超限天数：${overDays} 天` : '✅ 未超限！'}\n\n${avgMin < 60 ? '保持自律，AI 是工具不是依赖 💪' : avgMin < 180 ? '用量适中，张弛有度是王道 🎯' : '用量偏高，该给自己放个假了 🏖️'}\n\n#AI自律 #程序员日常 #AITimeGuard #效率工具 #代码人生`,
+      () => `⏰ ${rangeText} AI 使用时长：${fmtHM(totalSec)}\n\n${isSingle ? '今天的 AI 使用情况：' : '一个自律的程序员，是怎样管理 AI 使用时间的？'}\n\n${periodWord}的数据说话：\n${isSingle ? '' : `• 日均使用 ${fmtHM(avgSec)}\n`}• 主力工具 ${topName}（${topTime}）\n• 自律评分 ${score} 分\n• 段位 ${rank.name}\n\n${score >= 80 ? '自律给了我自由，这份报告就是证明 📝' : '数据不会骗人，接下来要更加自律了 💪'}\n\n用 AI Time Guard 来监控你的 AI 使用时间吧！\n做 AI 的主人，不做 AI 的奴隶 🛡️\n\n#AI使用管理 #程序员自律 #AITimeGuard #科技生活`,
+      () => `💻 程序员的${isSingle ? '一天' : periodWord} | AI 使用数据复盘\n\n📈 ${shortRange}战报：\n总时长 ${fmtHM(totalSec)}${isSingle ? '' : ` | 日均 ${fmtHM(avgSec)}`}\n段位 ${rank.name} | 评分 ${score}\n\n🔧 工具偏好：\n${Object.entries(allTools).sort((a,b) => b[1]-a[1]).slice(0, 3).map(([n,s]) => `  ${n}：${fmtHM(s)}`).join('\n')}\n\n${avgMin < 120 ? '✨ 效率在线，自律满分！' : '🤔 是不是该减少一点依赖了？'}\n\nAI 好用，但健康更重要。\n你${periodWord}用了多少 AI？欢迎晒图交流~\n\n#AITimeGuard #AI自律打卡 #程序员日常 #效率记录`,
+    ],
+    wechat: [
+      () => `🛡️ 我的 AI 使用${isSingle ? '日报' : (numDays <= 7 ? '周报' : '月报')}\n\n${periodWord}，我用 AI Time Guard 记录了自己的 AI 工具使用时间。\n\n总计 ${fmtHM(totalSec)}${isSingle ? '' : `，日均 ${fmtHM(avgSec)}`}。\n\n使用最多的工具是 ${topName}（${topTime}）${isSingle ? '' : `，${activeDays}/${numDays} 天保持活跃`}，自律评分 ${score} 分。\n\n${score >= 80 ? '总体表现不错，AI 是提升效率的利器，但关键在于有节制地使用。' : '用量有点超标，需要更加注意时间管理。'}\n\n推荐大家也试试 AI Time Guard，了解自己的 AI 使用习惯，做到心中有数。\n\n毕竟，善用工具的人，才是真正的高效能人士。`,
+      () => `📊 用数据说话：我的 AI 使用${isSingle ? '日报' : `${shortRange}报告`}\n\n在 AI 时代，我们每天都在和各种 AI 工具打交道。但你知道自己花了多少时间在上面吗？\n\n${periodWord}的数据：\n- 总时长：${fmtHM(totalSec)}\n${isSingle ? '' : `- 日均：${fmtHM(avgSec)}\n`}- 段位：${rank.name}\n- 评分：${score} 分\n\n最常用的是 ${topName}${totalSec > 0 && topTool ? `，占据了 ${Math.round(topTool[1] / totalSec * 100)}% 的使用时间` : ''}。\n\n${overDays > 0 ? `有 ${overDays} 天超出了设定限额，提醒我要更加注意工作与休息的平衡。` : '完美达标，没有超出限额。'}\n\nAI 正在重塑我们的工作方式，但别忘了，你的专注力和创造力才是不可替代的。`
+    ],
+    weibo: [
+      () => `${rangeText} AI 使用时长 ${fmtHM(totalSec)}，段位"${rank.name}"，自律评分 ${score} 分。最爱用 ${topName}。${score >= 80 ? '自律的感觉真好！' : '要控制一下了...'} AI 好用但别贪杯~ #AI自律# #AITimeGuard#`,
+      () => `📊 晒一下${periodWord}的 AI 使用报告：${isSingle ? '' : `日均 ${fmtHM(avgSec)}，`}${isSingle ? '' : `${activeDays}/${numDays} 天活跃，`}评分 ${score}。${topName} 是我的主力。${avgMin < 60 ? '轻度使用，保持健康节奏 💪' : avgMin < 180 ? '深度用户，效率拉满 🚀' : '重度依赖，该戒了 😅'} #程序员日常# #AITimeGuard#`,
+      () => `⏰ 用 AI Time Guard 一看，${periodWord} AI 用了 ${fmtHM(totalSec)}${!isSingle ? `... ${fmtHM(maxSec)} 的最高单日也太卷了吧` : ''}！段位 ${rank.name}，你是什么段位？#AI使用时间# #自律打卡#`,
+    ],
+    twitter: [
+      () => `🛡️ My AI Usage Report (${rangeText}):\n⏱️ Total: ${fmtHM(totalSec)}${isSingle ? '' : ` | Daily avg: ${fmtHM(avgSec)}`}\n🔧 Top tool: ${topName}\n📊 Score: ${score}/100\n${score >= 80 ? '✅ Staying disciplined!' : '⚠️ Need more self-control...'}\n#AITimeGuard #DevLife #AIProductivity`,
+      () => `📊 ${rangeText} AI time check:\n${fmtHM(totalSec)} total${isSingle ? '' : `, ${activeDays}/${numDays} days active`}.\nRank: ${rank.name}\n${topName} is my go-to tool (${topTime}).\nAI is a tool, not a lifestyle. 🛡️\n#AITimeGuard #CodingLife`,
+    ],
+  };
+
+  const pool = templates[sharePlatform] || templates.xiaohongshu;
+  document.getElementById('shareCwText').textContent = pool[Math.floor(Math.random() * pool.length)]();
+}
+
+// ─── 操作 ───
+function shareShowToast(msg) {
+  const t = document.getElementById('shareToast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+function shareCopyCw() {
+  navigator.clipboard.writeText(document.getElementById('shareCwText').textContent)
+    .then(() => shareShowToast('✅ 文案已复制到剪贴板'));
+}
+
+function shareCopyData() {
+  if (!latestData) return;
+  const { history, config } = latestData.report;
+  const dateKeys = shareGetDateKeys();
+  const numDays = dateKeys.length;
+  let totalSec = 0, activeDays = 0;
+  const allTools = {};
+  dateKeys.forEach(k => {
+    const sec = getTotal(history[k]); totalSec += sec; if (sec > 60) activeDays++;
+    const tools = getTools(history[k]);
+    for (const [n, s] of Object.entries(tools)) allTools[n] = (allTools[n] || 0) + s;
+  });
+  const avgSec = numDays > 0 ? totalSec / numDays : 0;
+  const rank = shareGetRank(numDays === 1 ? totalSec / 60 : avgSec / 60);
+  const score = shareCalcScore(history, config, dateKeys);
+  const toolStr = Object.entries(allTools).sort((a,b) => b[1]-a[1]).map(([n,s]) => `${n}: ${fmtMinutes(s/60)}`).join(' | ');
+  const text = `AI Time Guard ${shareGetRangeLabel()}报告\n总时长: ${fmtMinutes(totalSec/60)}${numDays > 1 ? `\n日均: ${fmtMinutes(avgSec/60)}` : ''}\n段位: ${rank.name}\n评分: ${score}${numDays > 1 ? `\n活跃: ${activeDays}/${numDays}天` : ''}\n工具: ${toolStr}`;
+  navigator.clipboard.writeText(text).then(() => shareShowToast('✅ 数据已复制到剪贴板'));
+}
+
+async function shareEnsureHtml2Canvas() {
+  if (!window.html2canvas) {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+    document.head.appendChild(s);
+    await new Promise((res, rej) => { s.onload = res; s.onerror = rej; });
+  }
+}
+
+async function shareCopyImage() {
+  const card = document.getElementById('shareCard');
+  try {
+    await shareEnsureHtml2Canvas();
+    shareShowToast('📋 正在复制图片...');
+    const canvas = await html2canvas(card, { scale: 2, backgroundColor: null, useCORS: true, logging: false });
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    shareShowToast('✅ 图片已复制到剪贴板，可直接粘贴');
+  } catch(e) {
+    console.error(e);
+    if (e.name === 'NotAllowedError') {
+      shareShowToast('⚠️ 浏览器不允许复制图片，请改用保存');
+    } else {
+      shareShowToast('⚠️ 复制失败，请尝试保存图片');
+    }
+  }
+}
+
+async function shareSaveImage() {
+  const card = document.getElementById('shareCard');
+  try {
+    await shareEnsureHtml2Canvas();
+    shareShowToast('💾 正在保存图片...');
+    const canvas = await html2canvas(card, { scale: 2, backgroundColor: null, useCORS: true, logging: false });
+    const link = document.createElement('a');
+    link.download = `AI-Time-Guard-${shareGetRangeLabel()}-${getDateStr(0)}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    shareShowToast('✅ 图片已保存！');
+  } catch(e) {
+    console.error(e);
+    shareShowToast('⚠️ 保存失败，请尝试截图');
+  }
+}
+
+// ─── 设置 Modal ───
+function openSettingsModal() {
+  document.getElementById('settingsModal').classList.add('show');
+  document.body.style.overflow = 'hidden';
+  loadSettingsToForm();
+}
+
+function closeSettingsModal() {
+  document.getElementById('settingsModal').classList.remove('show');
+  document.body.style.overflow = '';
+}
+
+document.getElementById('settingsModal').addEventListener('click', function(e) {
+  if (e.target === this) closeSettingsModal();
+});
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    if (document.getElementById('settingsModal').classList.contains('show')) {
+      closeSettingsModal();
+    } else if (document.getElementById('shareModal').classList.contains('show')) {
+      closeShareModal();
+    }
+  }
+});
+
+function loadSettingsToForm() {
+  if (!latestData) return;
+  const c = latestData.report.config;
+  document.getElementById('settingLimit').value = c.daily_limit_minutes || 180;
+  document.getElementById('settingWarning').value = c.warning_at_percent || 80;
+  document.getElementById('settingPeriodicEnabled').checked = c.periodic_alert_enabled !== false;
+  document.getElementById('settingPeriodicInterval').value = c.periodic_alert_minutes || 30;
+  document.getElementById('settingRemindInterval').value = c.remind_interval_minutes || 15;
+  document.getElementById('settingStrict').checked = !!c.strict_mode;
+}
+
+async function saveSettings() {
+  const newConfig = {
+    daily_limit_minutes: parseInt(document.getElementById('settingLimit').value),
+    warning_at_percent: parseInt(document.getElementById('settingWarning').value),
+    periodic_alert_enabled: document.getElementById('settingPeriodicEnabled').checked,
+    periodic_alert_minutes: parseInt(document.getElementById('settingPeriodicInterval').value),
+    remind_interval_minutes: parseInt(document.getElementById('settingRemindInterval').value),
+    strict_mode: document.getElementById('settingStrict').checked,
+  };
+  try {
+    const resp = await fetch(API_BASE + '/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newConfig),
+    });
+    if (resp.ok) {
+      shareShowToast('✅ 设置已保存，已同步到菜单栏');
+      // 刷新数据
+      const d = await fetchData();
+      latestData = d;
+      render(d);
+      closeSettingsModal();
+    } else {
+      shareShowToast('⚠️ 保存失败，请重试');
+    }
+  } catch(e) {
+    console.error(e);
+    shareShowToast('⚠️ 网络错误，保存失败');
+  }
+}
+
+// ─── 分享卡片皮肤 ───
+let shareSkin = 'purple';
+
+const SKIN_GRADIENTS = {
+  purple: 'linear-gradient(135deg, #6c5ce7, #a29bfe, #74b9ff)',
+  blue:   'linear-gradient(135deg, #0052D9, #0066FF, #3399FF)',
+  green:  'linear-gradient(135deg, #00b894, #55efc4, #81ecec)',
+  sunset: 'linear-gradient(135deg, #e17055, #fdcb6e, #fab1a0)',
+  rose:   'linear-gradient(135deg, #fd79a8, #e84393, #a29bfe)',
+  dark:   'linear-gradient(135deg, #2d3436, #636e72, #b2bec3)',
+};
+
+function shareSetSkin(skin) {
+  shareSkin = skin;
+  document.querySelectorAll('.share-skin-item').forEach(el =>
+    el.classList.toggle('active', el.dataset.skin === skin)
+  );
+  // 更新卡片头部渐变
+  const scHeader = document.querySelector('.sc-header');
+  if (scHeader) {
+    scHeader.style.background = SKIN_GRADIENTS[skin] || SKIN_GRADIENTS.purple;
+  }
+}
+
+</script>
+</body>
+</html>

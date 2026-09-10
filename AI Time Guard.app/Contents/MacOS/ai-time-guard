@@ -1,0 +1,17 @@
+#!/bin/bash
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+APP_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/../../.." && pwd)"
+LOG_FILE="$HOME/.ai-time-guard/app.log"
+
+mkdir -p "$HOME/.ai-time-guard"
+export PYTHONNOUSERSITE=0
+
+if [ -x "$APP_ROOT/.venv/bin/python" ]; then
+  PYTHON_BIN="$APP_ROOT/.venv/bin/python"
+elif [ -x "$APP_ROOT/venv/bin/python" ]; then
+  PYTHON_BIN="$APP_ROOT/venv/bin/python"
+else
+  PYTHON_BIN="$(command -v python3)"
+fi
+
+exec "$PYTHON_BIN" -u "$APP_ROOT/ai_time_guard.py" >> "$LOG_FILE" 2>&1

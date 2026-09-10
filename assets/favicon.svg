@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="AI Time Guard">
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f6fff"/>
+      <stop offset="100%" stop-color="#26c281"/>
+    </linearGradient>
+  </defs>
+  <rect x="10" y="8" width="108" height="112" rx="28" fill="url(#g1)"/>
+  <path d="M64 24c-9 8-23 11-34 12v24c0 30 18 49 34 56 16-7 34-26 34-56V36c-11-1-25-4-34-12z" fill="#fff" fill-opacity="0.95"/>
+  <circle cx="64" cy="67" r="18" fill="#0f6fff"/>
+  <path d="M64 52v16l10 6" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

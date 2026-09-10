@@ -1,0 +1,20 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.claude/
+.ai-time-guard/
+*.log
+
+# Private working notes and generated publishing material
+DETAILED_REPORT.md
+LATEST_REPORT.md
+exploration/
+infographic/
+xhs-images/
+xhs-post.md
+
+# Browser automation output
+output/
+.playwright-cli/
