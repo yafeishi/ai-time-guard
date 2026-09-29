@@ -18,3 +18,4 @@ xhs-post.md
 # Browser automation output
 output/
 .playwright-cli/
+.playwright-mcp/
