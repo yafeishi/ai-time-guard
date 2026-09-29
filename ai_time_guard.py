@@ -19,6 +19,7 @@ import os
 import time
 import subprocess
 import threading
+import unicodedata
 import webbrowser
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from socketserver import ThreadingMixIn
@@ -27,7 +28,13 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 try:
-    from AppKit import NSWorkspace, NSApplication, NSApplicationActivationPolicyAccessory, NSApplicationActivationPolicyRegular, NSImage
+    from AppKit import (
+        NSWorkspace, NSApplication,
+        NSApplicationActivationPolicyAccessory, NSApplicationActivationPolicyRegular,
+        NSImage,
+        NSColor, NSAttributedString, NSMutableAttributedString, NSFont,
+        NSForegroundColorAttributeName, NSFontAttributeName,
+    )
     # 默认使用菜单栏应用模式，避免常驻 Dock 图标影响显示与聚焦行为。
     # 若需排查菜单栏问题，可设置环境变量 AITG_DOCK_DEBUG=1 临时启用 Dock 图标。
     debug_dock = os.environ.get("AITG_DOCK_DEBUG") == "1"
@@ -52,6 +59,10 @@ DEBUG_LOG_FILE = CONFIG_DIR / "debug.log"
 
 HISTORY_SAVE_INTERVAL_SECONDS = 60  # 历史数据写入节流间隔（秒）
 
+# 菜单栏倒计时的可选时长（分钟）。用户的选择记在 countdown_duration_seconds，
+# 下次打开菜单时沿用。
+COUNTDOWN_DURATION_CHOICES = (1, 2, 3, 5, 10, 15, 20, 30)
+
 DEFAULT_CONFIG = {
     "daily_limit_minutes": 180,       # 每日限额（分钟）
     "warning_at_percent": 80,         # 使用达到百分比时首次提醒
@@ -61,6 +72,11 @@ DEFAULT_CONFIG = {
     "check_interval_seconds": 10,     # 检测进程间隔（秒）
     "strict_mode": False,             # 严格模式：超限后尝试发送通知并持续提醒
     "theme": "dark",                  # 主题: dark | tencent-blue
+    "stand_up_interval_minutes": 45,  # 站立活动提醒间隔（分钟）
+    "stand_up_enabled": False,        # 是否启用站立提醒（默认关闭，按需启用）
+    "stand_up_last_reminder_time": 0, # 上次提醒时间戳（秒），0 表示从未提醒
+    "stand_up_title_mode": "final5",  # 菜单栏显示方式：final5 | always
+    "countdown_duration_seconds": 180,# 菜单内倒计时时长（秒），记住用户上次选择
 }
 
 
@@ -127,6 +143,157 @@ def save_history(history):
         json.dump(history, f, indent=2, ensure_ascii=False)
 
 
+# ── NSColor 工厂：用名字解析为 NSColor 实例（无 AppKit 时全为 None） ──
+# NSColor.systemBlueColor 等是类方法，必须加 () 拿实例；这里把"调出实例"这一步延后到 _set_attributed_title 内部
+_STAND_UP_COLOR_NAMES = (
+    "gray", "secondary", "blue", "green", "yellow", "orange", "red", "purple", "label",
+)
+
+
+def _resolve_color(name):
+    """把名字解析成 NSColor 实例；无 AppKit 时返回 None
+
+    全部使用系统动态色（labelColor / secondaryLabelColor / systemXxxColor），
+    它们会跟随 macOS 的浅色/深色外观自动切换，所以在深色窗口下也能保持对比度。
+    """
+    if not HAS_APPKIT:
+        return None
+    if name == "gray":
+        return NSColor.tertiaryLabelColor()
+    if name == "quaternary":
+        return NSColor.quaternaryLabelColor()
+    if name == "secondary":
+        return NSColor.secondaryLabelColor()
+    if name == "blue":
+        return NSColor.systemBlueColor()
+    if name == "green":
+        return NSColor.systemGreenColor()
+    if name == "yellow":
+        return NSColor.systemYellowColor()
+    if name == "orange":
+        return NSColor.systemOrangeColor()
+    if name == "red":
+        return NSColor.systemRedColor()
+    if name == "purple":
+        return NSColor.systemPurpleColor()
+    if name == "label":
+        return NSColor.labelColor()
+    return None
+
+
+# ── 字体工厂 ──
+# 菜单默认字体是 SF Pro（比例字体），方块字符 █░│ 会回退到 Apple Symbols，
+# 宽度与正文不一致，导致 ljust/rjust 补出来的列全是歪的。
+# 因此方块段单独用等宽字体（Menlo），数字段用等宽数字字体，两者都能对齐。
+_MONO_FONT_NAME = "Menlo"
+_MONO_FONT_SIZE = 11.0
+
+
+def _resolve_font(kind):
+    """kind: None/'label' → 系统字体, 'bold' → 系统粗体, 'mono' → 等宽, 'digit' → 等宽数字"""
+    if not HAS_APPKIT:
+        return None
+    if kind == "bold":
+        return NSFont.boldSystemFontOfSize_(0)
+    if kind == "mono":
+        return NSFont.fontWithName_size_(_MONO_FONT_NAME, _MONO_FONT_SIZE)
+    if kind == "digit":
+        # 等宽数字：让 1:14:49 和 15:36 的冒号/数字占位一致
+        return NSFont.monospacedDigitSystemFontOfSize_weight_(0, 0.0)
+    return NSFont.systemFontOfSize_(0)
+
+
+def _color_name_for_total_hours(hours):
+    """按总时长返回色彩名"""
+    if hours <= 0:
+        return "label"
+    if hours < 20:
+        return "green"
+    if hours < 40:
+        return "yellow"
+    if hours < 60:
+        return "orange"
+    return "red"
+
+
+def _color_name_for_day_seconds(secs, limit_minutes):
+    """按单日时长相对每日限额返回色彩名"""
+    if secs <= 0:
+        return "secondary"
+    limit_sec = max(1, limit_minutes * 60)
+    ratio = secs / limit_sec
+    if ratio < 0.3:
+        return "blue"
+    if ratio < 0.6:
+        return "green"
+    if ratio < 1.0:
+        return "yellow"
+    if ratio < 1.5:
+        return "orange"
+    return "red"
+
+
+def _set_attributed_title(menu_item, text, color_name=None, bold=False, secondary_label=False):
+    """给 rumps MenuItem 设置带色/加粗的标题；缺 AppKit/NSMenuItem 时退化为纯文本"""
+    # 不需要富文本：直接走纯文本
+    if color_name is None and not bold and not secondary_label:
+        menu_item.title = text
+        return
+    # 没有 AppKit 或没有 NSMenuItem 包装：退化为纯文本
+    if not HAS_APPKIT:
+        menu_item.title = text
+        return
+    nsitem = getattr(menu_item, "_menuitem", None)
+    if nsitem is None or not hasattr(nsitem, "setAttributedTitle_"):
+        menu_item.title = text
+        return
+    attrs = {}
+    if bold:
+        attrs[NSFontAttributeName] = NSFont.boldSystemFontOfSize_(0)
+    chosen_name = color_name if color_name is not None else (
+        "secondary" if secondary_label else None
+    )
+    if chosen_name is not None:
+        chosen_color = _resolve_color(chosen_name)
+        if chosen_color is not None:
+            attrs[NSForegroundColorAttributeName] = chosen_color
+    attr_str = NSAttributedString.alloc().initWithString_attributes_(text, attrs)
+    nsitem.setAttributedTitle_(attr_str)
+
+
+def _set_segmented_title(menu_item, segments):
+    """把一行拆成多段富文本，每段可独立指定颜色和字体
+
+    segments: [(text, color_name, font_kind), ...]
+    典型用法是「日期 + 方块柱 + 时长」三段：柱子和时长用语义色，
+    日期用 labelColor，这样深色窗口下每一段都清晰可见。
+    无 AppKit 时退化为拼接纯文本。
+    """
+    plain = "".join(seg[0] for seg in segments)
+    nsitem = getattr(menu_item, "_menuitem", None) if HAS_APPKIT else None
+    if nsitem is None or not hasattr(nsitem, "setAttributedTitle_"):
+        menu_item.title = plain
+        return
+    result = NSMutableAttributedString.alloc().initWithString_("")
+    for text, color_name, font_kind in segments:
+        if not text:
+            continue
+        attrs = {}
+        font = _resolve_font(font_kind)
+        if font is not None:
+            attrs[NSFontAttributeName] = font
+        if color_name is not None:
+            color = _resolve_color(color_name)
+            if color is not None:
+                attrs[NSForegroundColorAttributeName] = color
+        result.appendAttributedString_(
+            NSAttributedString.alloc().initWithString_attributes_(text, attrs)
+        )
+    nsitem.setAttributedTitle_(result)
+    # 同步 .title，/api/debug/menu 等纯文本读取仍能拿到完整内容
+    menu_item.title = plain
+
+
 def format_duration(seconds):
     """将秒数格式化为 h:mm:ss 或 m:ss"""
     h = int(seconds // 3600)
@@ -146,6 +313,30 @@ def format_minutes(minutes):
     elif h > 0:
         return f"{h}小时"
     return f"{m}分钟"
+
+
+def _display_width(text):
+    """估算字符串在菜单里的显示列宽，CJK/全角字符按 2 列算
+
+    str.ljust/rjust 按字符个数补空格，对 "今天"(2 字 = 4 列) 和 "09/23"(5 字 = 5 列)
+    会补出不同的宽度，导致日期列歪掉。这里统一按显示列宽来算。
+    """
+    width = 0
+    for ch in text:
+        # CJK 统一表意文字、全角标点、假名等
+        if unicodedata.east_asian_width(ch) in ("W", "F"):
+            width += 2
+        else:
+            width += 1
+    return width
+
+
+def _pad_display(text, width, align="left"):
+    """按显示列宽对齐（CJK 安全）"""
+    pad = max(0, width - _display_width(text))
+    if align == "right":
+        return " " * pad + text
+    return text + " " * pad
 
 
 def shift_months(base_date, months_delta):
@@ -278,6 +469,8 @@ def check_terminal_has_ai_tool():
 
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             continue
+        except (SystemError, OSError, RuntimeError):
+            continue
 
     _terminal_ai_cache["tool"] = tool
     _terminal_ai_cache["last_check"] = now
@@ -363,6 +556,8 @@ def get_ai_tool_resource_usage(use_cache=True):
                     break
                     
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+        except (SystemError, OSError, RuntimeError):
             continue
     
     # 更新缓存
@@ -608,6 +803,31 @@ class ReportHandler(SimpleHTTPRequestHandler):
 
         if path == '/api/today':
             self.send_json_response(self.build_today())
+            return
+
+        if path == '/api/debug/menu':
+            app = _app_instance
+            if not app:
+                self.send_json_response({"error": "app not running"}, status=503)
+                return
+            titles = {
+                "status": app.status_item.title,
+                "today": app.today_item.title,
+                "limit": app.limit_item.title,
+                "stats_header": app.stats_header_item.title,
+            }
+            for i, item in enumerate(app.stats_day_items):
+                titles[f"stats_day_{i}"] = item.title
+            titles["stand_up_menu"] = app.stand_up_menu.title
+            titles["stand_up_toggle"] = app.stand_up_toggle_item.title
+            titles["stand_up_enabled"] = app.stand_up_enabled
+            titles["stand_up_last_time"] = app.stand_up_last_reminder_time
+            titles["countdown_menu"] = app.countdown_menu.title
+            titles["countdown_action"] = app.countdown_action_item.title
+            titles["countdown_duration_minutes"] = app.countdown_duration_minutes
+            titles["countdown_state"] = app.countdown_state
+            titles["menubar_title"] = app.title
+            self.send_json_response(titles)
             return
 
         if path.startswith('/api/daily/'):
@@ -1106,6 +1326,23 @@ class AITimeGuardApp(rumps.App):
         self.last_periodic_alert_usage_seconds = self.today_seconds  # 按活跃时长触发周期提醒
         self.last_history_save_time = time.time()     # 历史数据写入节流
 
+        # 倒计时状态（运行时不依赖 AI 监控是否暂停）
+        self.countdown_duration_seconds = int(self.config.get("countdown_duration_seconds", 180))
+        self.countdown_duration_minutes = max(1, round(self.countdown_duration_seconds / 60))
+        self.countdown_remaining_seconds = 0
+        self.countdown_state = "idle"  # idle | running | finished
+        self.countdown_timer = None
+
+        # 45 分钟站立提醒状态（独立于 AI 监控，到点系统通知）
+        self.stand_up_interval_minutes = int(self.config.get("stand_up_interval_minutes", 45))
+        self.stand_up_enabled = bool(self.config.get("stand_up_enabled", False))
+        saved_last = float(self.config.get("stand_up_last_reminder_time", 0) or 0)
+        self.stand_up_last_reminder_time = saved_last if saved_last > 0 else time.time()
+        # 菜单栏标题显示方式：final5 = 仅剩 5 分钟时显示前缀；always = 始终显示
+        self.stand_up_title_mode = self.config.get("stand_up_title_mode", "final5")
+        if self.stand_up_title_mode not in ("final5", "always"):
+            self.stand_up_title_mode = "final5"
+
         # 启动一次性诊断：确认菜单栏状态项是否创建并可见
         self.debug_timer = rumps.Timer(self.debug_status_item, 3)
         self.debug_timer.start()
@@ -1122,6 +1359,13 @@ class AITimeGuardApp(rumps.App):
         self.limit_item = rumps.MenuItem(
             f"限额: {format_minutes(self.config['daily_limit_minutes'])}"
         )
+
+        # 近 7 天 AI 使用量可视化（电量监测样式）
+        self.stats_header_item = rumps.MenuItem("📊 近 7 天           0:00")
+        self.stats_day_items = []
+        for _ in range(7):
+            self.stats_day_items.append(rumps.MenuItem("  ·"))
+
         self.separator1 = rumps.separator
 
         self.pause_item = rumps.MenuItem("暂停监控", callback=self.toggle_monitoring)
@@ -1166,12 +1410,73 @@ class AITimeGuardApp(rumps.App):
         self.report_item = rumps.MenuItem("查看使用报告", callback=self.open_report)
         self.separator4 = rumps.separator
 
+        # ── 新增：可配置时长的倒计时 ──
+        self.countdown_menu = rumps.MenuItem(f"🕒 {self.countdown_duration_minutes} 分钟倒计时")
+        self.countdown_action_item = rumps.MenuItem(
+            f"开始 {self.countdown_duration_minutes:02d}:00 倒计时",
+            callback=self.toggle_countdown,
+        )
+        self.countdown_menu.add(self.countdown_action_item)
+        self.countdown_duration_submenu = rumps.MenuItem("选择时长")
+        for mins in COUNTDOWN_DURATION_CHOICES:
+            item = rumps.MenuItem(
+                f"{mins} 分钟", callback=self.set_countdown_duration
+            )
+            item._mins = mins
+            item.state = (mins == self.countdown_duration_minutes)
+            self.countdown_duration_submenu.add(item)
+        self.countdown_menu.add(rumps.separator)
+        self.countdown_menu.add(self.countdown_duration_submenu)
+
+        # ── 新增：站立提醒 ──
+        self.stand_up_menu = rumps.MenuItem("🧍 站立提醒")
+        self.stand_up_toggle_item = rumps.MenuItem(
+            "禁用站立提醒" if self.stand_up_enabled else "启用站立提醒",
+            callback=self.toggle_stand_up,
+        )
+        self.stand_up_toggle_item.state = self.stand_up_enabled
+        self.stand_up_menu.add(self.stand_up_toggle_item)
+
+        self.stand_up_interval_submenu = rumps.MenuItem("调整间隔")
+        for mins in [30, 45, 60, 90, 120]:
+            item = rumps.MenuItem(f"{mins} 分钟", callback=self.set_stand_up_interval)
+            item._mins = mins
+            if mins == self.stand_up_interval_minutes:
+                item.state = True
+            self.stand_up_interval_submenu.add(item)
+        self.stand_up_menu.add(self.stand_up_interval_submenu)
+
+        self.stand_up_test_item = rumps.MenuItem(
+            "立即提醒一次", callback=self.test_stand_up_reminder
+        )
+        self.stand_up_menu.add(self.stand_up_test_item)
+
+        self.stand_up_separator2 = rumps.separator
+        self.stand_up_menu.add(self.stand_up_separator2)
+
+        # 菜单栏标题显示方式子菜单
+        self.stand_up_title_mode_submenu = rumps.MenuItem("菜单栏显示方式")
+        for mode, label in (
+            ("final5", "仅剩 5 分钟时显示"),
+            ("always", "始终显示倒计时"),
+        ):
+            item = rumps.MenuItem(label, callback=self.set_stand_up_title_mode)
+            item._mode = mode
+            if mode == self.stand_up_title_mode:
+                item.state = True
+            self.stand_up_title_mode_submenu.add(item)
+        self.stand_up_menu.add(self.stand_up_title_mode_submenu)
+
+        self.separator5 = rumps.separator
+
         self.quit_item = rumps.MenuItem("退出", callback=self.quit_app)
 
         self.menu = [
             self.status_item,
             self.today_item,
             self.limit_item,
+            self.stats_header_item,
+            *self.stats_day_items,
             self.separator1,
             self.pause_item,
             self.separator2,
@@ -1184,6 +1489,9 @@ class AITimeGuardApp(rumps.App):
             self.history_item,
             self.report_item,
             self.separator4,
+            self.countdown_menu,
+            self.stand_up_menu,
+            self.separator5,
             self.quit_item,
         ]
 
@@ -1194,19 +1502,49 @@ class AITimeGuardApp(rumps.App):
         self.timer.start()
 
     def update_title(self):
-        """更新菜单栏显示的标题"""
+        """更新菜单栏显示的标题
+        - 倒计时进行中时顶掉所有内容，显示 ⏱MM:SS
+        - 站立提醒启用时，把"🧍MM:SS"加在前面作为提醒前缀
+        - 其余场景显示 AI 时间状态（PAUSE/OVER/AI/IDLE）
+        """
         today_min = self.today_seconds / 60
         limit_min = self.config["daily_limit_minutes"]
 
+        if self.countdown_state == "running":
+            mins = self.countdown_remaining_seconds // 60
+            secs = self.countdown_remaining_seconds % 60
+            self.title = f"⏱{mins:02d}:{secs:02d}"
+            return
+
+        # 站立提醒倒计时作为前缀（启用时按 title_mode 规则显示，倒计时不运行时才出现）
+        stand_up_prefix = ""
+        if self.stand_up_enabled and self.stand_up_last_reminder_time > 0:
+            remaining_sec = max(
+                0,
+                int(self.stand_up_interval_minutes * 60
+                    - (time.time() - self.stand_up_last_reminder_time)),
+            )
+            show_prefix = (
+                self.stand_up_title_mode == "always"
+                or remaining_sec <= 5 * 60
+            )
+            if remaining_sec > 0 and show_prefix:
+                sm = remaining_sec // 60
+                ss = remaining_sec % 60
+                stand_up_prefix = f"🧍{sm:02d}:{ss:02d} "
+            elif remaining_sec == 0 and self.stand_up_title_mode == "always":
+                # 已到点时只在"始终显示"模式下提醒
+                stand_up_prefix = "🧍⏰ "
+
         if not self.is_monitoring:
-            self.title = f"PAUSE {format_duration(self.today_seconds)}"
+            self.title = f"{stand_up_prefix}PAUSE {format_duration(self.today_seconds)}"
         elif self.is_ai_active:
             if today_min >= limit_min:
-                self.title = f"OVER {format_duration(self.today_seconds)}"
+                self.title = f"{stand_up_prefix}OVER {format_duration(self.today_seconds)}"
             else:
-                self.title = f"AI {format_duration(self.today_seconds)}"
+                self.title = f"{stand_up_prefix}AI {format_duration(self.today_seconds)}"
         else:
-            self.title = f"IDLE {format_duration(self.today_seconds)}"
+            self.title = f"{stand_up_prefix}IDLE {format_duration(self.today_seconds)}"
 
     def debug_status_item(self, _):
         """记录一次状态栏项状态，帮助定位不显示问题"""
@@ -1252,6 +1590,15 @@ class AITimeGuardApp(rumps.App):
             self.last_periodic_alert_usage_seconds = self.today_seconds
             self.warning_sent = False
             self.limit_warning_sent = False
+
+        # 站立提醒独立于 AI 监控：即使监控暂停也要到点提醒
+        if self.stand_up_enabled:
+            self.fire_stand_up_reminder()
+
+        # 刷新菜单栏标题（站立倒计时前缀）和下拉里的近 7 天可视化
+        self.update_title()
+        self.update_stand_up_menu_title()
+        self.update_weekly_stats()
 
         if not self.is_monitoring:
             self.last_check_time = now
@@ -1362,6 +1709,21 @@ class AITimeGuardApp(rumps.App):
                 )
             except Exception:
                 pass
+
+    def show_modal_alert(self, title, message, ok="知道了"):
+        """弹出阻塞式模态框，直到用户点击按钮才关闭
+
+        凡是"必须让用户看到"的提醒都要走这里，不要用 send_notification：
+        rumps 走的是已废弃的 NSUserNotification，而本项目跑在没有 bundle ID 的
+        Python 进程里，系统没有对应的通知授权记录，横幅会被静默丢弃——通知确实
+        进了通知中心（deliveredNotifications 里查得到），但屏幕上不会弹出来。
+        模态框不依赖通知授权，是唯一可靠的用户可见提示。
+        """
+        try:
+            rumps.alert(title=title, message=message, ok=ok)
+        except Exception:
+            # 极端情况下弹窗失败，退回系统通知，至少不静默失败
+            self.send_notification(title, message)
 
     def show_periodic_alert(self):
         """显示阻塞式弹窗，用户必须手动关闭"""
@@ -1529,10 +1891,335 @@ class AITimeGuardApp(rumps.App):
         """在浏览器中打开使用报告"""
         webbrowser.open(f"http://127.0.0.1:{REPORT_PORT}")
 
+    # ── 倒计时 ─────────────────────────────────────────────
+    def toggle_countdown(self, _):
+        """根据当前状态切换：开始 / 取消倒计时"""
+        if self.countdown_state == "running":
+            self.cancel_countdown()
+        else:
+            self.start_countdown()
+
+    def start_countdown(self):
+        """启动一次新的倒计时"""
+        if self.countdown_state == "running":
+            return
+        self.countdown_remaining_seconds = self.countdown_duration_seconds
+        self.countdown_state = "running"
+        if self.countdown_timer is None:
+            self.countdown_timer = rumps.Timer(self.countdown_tick, 1)
+        self.countdown_timer.start()
+        self.countdown_action_item.title = "取消倒计时"
+        mins = self.countdown_remaining_seconds // 60
+        secs = self.countdown_remaining_seconds % 60
+        self.countdown_menu.title = f"🕒 倒计时 {mins:02d}:{secs:02d}"
+        self.update_title()
+
+    def cancel_countdown(self):
+        """手动取消倒计时（运行中或已完成都重置为空闲）"""
+        if self.countdown_timer is not None:
+            try:
+                self.countdown_timer.stop()
+            except Exception:
+                pass
+        self.countdown_state = "idle"
+        self.countdown_remaining_seconds = 0
+        self.refresh_countdown_labels()
+        self.update_title()
+
+    def countdown_tick(self, _):
+        """每秒回调，更新倒计时显示"""
+        self.countdown_remaining_seconds -= 1
+        if self.countdown_remaining_seconds <= 0:
+            self.countdown_finished()
+            return
+        mins = self.countdown_remaining_seconds // 60
+        secs = self.countdown_remaining_seconds % 60
+        self.countdown_menu.title = f"🕒 倒计时 {mins:02d}:{secs:02d}"
+        self.update_title()
+
+    def countdown_finished(self):
+        """倒计时结束：通知 + 切到 finished 状态"""
+        if self.countdown_timer is not None:
+            try:
+                self.countdown_timer.stop()
+            except Exception:
+                pass
+        self.countdown_state = "finished"
+        self.countdown_remaining_seconds = 0
+        self.refresh_countdown_labels()
+        self.update_title()
+        self.show_modal_alert(
+            f"🕒 {self.countdown_duration_minutes} 分钟倒计时结束",
+            "可以休息一下眼睛、伸个懒腰，或继续专注工作。",
+        )
+
+    def set_countdown_duration(self, sender):
+        """选择倒计时时长，并记住该选择（下次启动沿用）"""
+        new_minutes = int(sender._mins)
+        self.countdown_duration_minutes = new_minutes
+        self.countdown_duration_seconds = new_minutes * 60
+        self.config["countdown_duration_seconds"] = self.countdown_duration_seconds
+        save_config(self.config)
+
+        # 更新勾选状态
+        for item in self.countdown_duration_submenu.values():
+            if hasattr(item, "_mins"):
+                item.state = (item._mins == new_minutes)
+
+        self.refresh_countdown_labels()
+
+    def refresh_countdown_labels(self):
+        """把菜单文案刷成当前时长；运行中只更新"取消"，避免打断正在跑的倒计时"""
+        mins = self.countdown_duration_minutes
+        if self.countdown_state == "running":
+            self.countdown_action_item.title = "取消倒计时"
+            return
+        if self.countdown_state == "finished":
+            self.countdown_action_item.title = f"重新开始 {mins:02d}:00 倒计时"
+            self.countdown_menu.title = f"🕒 {mins} 分钟倒计时（已完成）"
+            return
+        self.countdown_action_item.title = f"开始 {mins:02d}:00 倒计时"
+        self.countdown_menu.title = f"🕒 {mins} 分钟倒计时"
+
+    # ── 站立提醒 ───────────────────────────────────────────
+    def toggle_stand_up(self, sender):
+        """切换站立提醒开关"""
+        self.stand_up_enabled = not self.stand_up_enabled
+        sender.state = self.stand_up_enabled
+        self.config["stand_up_enabled"] = self.stand_up_enabled
+        if self.stand_up_enabled:
+            # 启用时把上次提醒时间重置为现在，避免立即触发
+            self.stand_up_last_reminder_time = time.time()
+            self.config["stand_up_last_reminder_time"] = self.stand_up_last_reminder_time
+        save_config(self.config)
+        self.update_stand_up_menu_title()
+        # 菜单栏标题前缀也要立刻刷，否则要等下一个 on_tick 才看到
+        self.update_title()
+        # 开关项的标签也跟随状态切换，让用户关闭重开后能立刻看到
+        if self.stand_up_enabled:
+            self.stand_up_toggle_item.title = "禁用站立提醒"
+        else:
+            self.stand_up_toggle_item.title = "启用站立提醒"
+
+    def set_stand_up_interval(self, sender):
+        """调整站立提醒间隔（分钟）"""
+        new_interval = int(sender._mins)
+        self.stand_up_interval_minutes = new_interval
+        self.config["stand_up_interval_minutes"] = new_interval
+        # 调整间隔后把上次提醒时间重置为现在
+        self.stand_up_last_reminder_time = time.time()
+        self.config["stand_up_last_reminder_time"] = self.stand_up_last_reminder_time
+        save_config(self.config)
+        # 更新勾选状态
+        for item in self.stand_up_interval_submenu.values():
+            if hasattr(item, "_mins"):
+                item.state = (item._mins == new_interval)
+        self.update_stand_up_menu_title()
+
+    def test_stand_up_reminder(self, _):
+        """立即触发一次站立提醒（用于测试通知）"""
+        # fire_stand_up_reminder 内部已弹模态框，这里不再叠加第二个弹窗
+        self.fire_stand_up_reminder(force=True)
+        # 菜单标题给可见反馈
+        self._show_stand_up_feedback("已发送 ✅")
+
+    def fire_stand_up_reminder(self, force=False):
+        """到点时由 on_tick 调用；force=True 表示手动测试"""
+        now = time.time()
+        elapsed_min = (now - self.stand_up_last_reminder_time) / 60.0
+        if not force and elapsed_min < self.stand_up_interval_minutes:
+            return
+        self.stand_up_last_reminder_time = now
+        self.config["stand_up_last_reminder_time"] = now
+        save_config(self.config)
+        body = (
+            f"已经坐了约 {self.stand_up_interval_minutes} 分钟啦，\n"
+            "站起来活动肩颈、眺望远处，保护眼睛。"
+        )
+        self.show_modal_alert(
+            "🧍 站起来活动一下",
+            body,
+        )
+
+    def update_stand_up_menu_title(self):
+        """根据开关、间隔、上次提醒时间刷新菜单标题（禁用时也显示间隔）"""
+        now = time.time()
+        feedback_text = getattr(self, "_stand_up_feedback_text", "")
+        feedback_expire = getattr(self, "_stand_up_feedback_expire", 0)
+        if feedback_text and feedback_expire > now:
+            self.stand_up_menu.title = f"🧍 站立提醒（{feedback_text}）"
+            return
+        if not self.stand_up_enabled:
+            self.stand_up_menu.title = f"🧍 站立提醒（{self.stand_up_interval_minutes} 分钟）"
+            return
+        elapsed = now - self.stand_up_last_reminder_time
+        remaining_sec = max(
+            0, int(self.stand_up_interval_minutes * 60 - elapsed)
+        )
+        if remaining_sec <= 0:
+            self.stand_up_menu.title = "🧍 站立提醒（即将提醒…）"
+        else:
+            mins = remaining_sec // 60
+            secs = remaining_sec % 60
+            self.stand_up_menu.title = f"🧍 站立提醒（下次 {mins:02d}:{secs:02d}）"
+
+    def _show_stand_up_feedback(self, text, duration=2.5):
+        """在菜单标题里临时显示反馈文字，duration 秒后自动还原"""
+        self._stand_up_feedback_text = text
+        self._stand_up_feedback_expire = time.time() + duration
+        self.update_stand_up_menu_title()
+        # 用一次性 rumps.Timer 在主线程里清掉反馈
+        timer = getattr(self, "_stand_up_feedback_timer", None)
+        if timer is not None:
+            try:
+                timer.stop()
+            except Exception:
+                pass
+        new_timer = rumps.Timer(self._clear_stand_up_feedback, duration + 0.5)
+        self._stand_up_feedback_timer = new_timer
+        new_timer.start()
+
+    def _clear_stand_up_feedback(self, _):
+        self._stand_up_feedback_text = ""
+        self._stand_up_feedback_expire = 0
+        self.update_stand_up_menu_title()
+
+
+    def set_stand_up_title_mode(self, sender):
+        """切换菜单栏标题显示方式：final5 / always"""
+        mode = getattr(sender, "_mode", None)
+        if mode not in ("final5", "always"):
+            return
+        self.stand_up_title_mode = mode
+        self.config["stand_up_title_mode"] = mode
+        save_config(self.config)
+        for item in self.stand_up_title_mode_submenu.values():
+            if hasattr(item, "_mode"):
+                item.state = (item._mode == mode)
+        # 立刻刷新菜单栏标题，让用户看到效果
+        self.update_title()
+
+    def update_weekly_stats(self):
+        """刷新菜单里近 7 天的可视化（电量监测样式 + NSColor 主题色）"""
+        today = date.today()
+        days = []
+        total_secs = 0
+        for i in range(6, -1, -1):
+            d = date.fromordinal(today.toordinal() - i)
+            d_str = str(d)
+            day_data = self.history.get(d_str, {"total": 0, "tools": {}})
+            if isinstance(day_data, dict):
+                secs = day_data.get("total", 0)
+            else:
+                secs = day_data
+            days.append((d, secs))
+            total_secs += secs
+
+        # 写入"今日"实时累计，保证今日的条和数字不会因为节流滞后
+        if days:
+            _, last_secs = days[-1]
+            if abs(last_secs - self.today_seconds) > 0.5:
+                days[-1] = (days[-1][0], self.today_seconds)
+                total_secs = sum(s for _, s in days)
+
+        limit_minutes = self.config.get("daily_limit_minutes", 180)
+
+        # ── 表头 ──
+        # 「近 7 天」用 labelColor，合计时长用语义色；两段独立着色，
+        # 避免整行染色导致深色窗口下标题看不清。
+        _set_segmented_title(
+            self.stats_header_item,
+            [
+                ("  近 7 天", "label", "bold"),
+                (" · 合计 ", "gray", None),
+                (format_duration(total_secs),
+                 _color_name_for_total_hours(total_secs / 3600), "digit"),
+            ],
+        )
+
+        # ── 柱状图：轨道 + 限额刻度 ──
+        # 满格 = 5 小时，10 格；轨道用 ░ 铺满全长，一眼看出"占限额多少"。
+        # │ 是每日限额在轨道上的位置，轨道本身代表 5 小时上限。
+        bar_unit = 30 * 60          # 1 格 = 30 分钟
+        max_bars = 10               # 10 格 = 5 小时
+        limit_bars = limit_minutes / 30.0   # 限额落在第几格（可为小数）
+        limit_col = max(1, min(max_bars - 1, int(round(limit_bars))))
+
+        for i, (d, secs) in enumerate(days):
+            if i == len(days) - 1:
+                day_label = "今天"
+            elif i == len(days) - 2:
+                day_label = "昨天"
+            else:
+                day_label = d.strftime("%m/%d")
+
+            # 柱子：填满的部分用语义色，剩余轨道用 quaternary（浅色下是浅灰、
+            # 深色下是深灰，不会抢戏但能看出边界）
+            bar_count = min(max_bars, secs / bar_unit)
+            day_color = _color_name_for_day_seconds(secs, limit_minutes)
+            filled = "█" * int(bar_count)
+            # 不足一格的部分用 ▏ 表示，避免几十分钟的数据看起来是空的
+            partial = "▏" if (0 < bar_count - int(bar_count) and not filled) else ""
+
+            # 把 │ 插到限额位置（刻度线独占一列，所以整行恒为 max_bars + 1 列，
+            # 所有日期的时长数字才会对齐）
+            left_cells = filled + partial
+            if len(left_cells) >= limit_col:
+                # 柱子已经盖过刻度线：语义色本身已经表达"超限"，刻度线不再画，
+                # 但补一格轨道保持行宽一致
+                bar_segments = [
+                    (left_cells, day_color, "mono"),
+                    ("░" * (max_bars - len(left_cells) + 1), "quaternary", "mono"),
+                ]
+            else:
+                bar_segments = [
+                    (left_cells, day_color, "mono"),
+                    ("░" * (limit_col - len(left_cells)), "quaternary", "mono"),
+                    ("│", "gray", "mono"),
+                    ("░" * (max_bars - limit_col), "quaternary", "mono"),
+                ]
+
+            # 日期与时长都用 labelColor 起步（自动跟随明暗），
+            # 0 天的时长用 secondary —— 在深色窗口下依然可读。
+            dur_text = format_duration(secs) if secs > 0 else "—"
+            dur_color = day_color if secs > 0 else "secondary"
+            is_today = i == len(days) - 1
+
+            _set_segmented_title(
+                self.stats_day_items[i],
+                [
+                    ("  ", None, None),
+                    (_pad_display(day_label, 5, "right"),
+                     "label", "bold" if is_today else None),
+                    ("  ", None, None),
+                    *bar_segments,
+                    ("  ", None, None),
+                    # 右补空格到固定宽度，让所有行的时长数字对齐。
+                    # 时长段用的是等宽数字字体，按字符数补即可（"—" 在该字体下也是一格），
+                    # 不能用 _pad_display：它按东亚字宽算，会给破折号多补一格。
+                    (dur_text.rjust(7), dur_color, "digit"),
+                ],
+            )
+
     def quit_app(self, _):
         # 保存数据
         self.history[self.today_key] = {"total": self.today_seconds, "tools": self.today_tools}
         save_history(self.history)
+        # 保存站立提醒状态，避免下次启动立即触发
+        self.config["stand_up_last_reminder_time"] = self.stand_up_last_reminder_time
+        save_config(self.config)
+        # 清理倒计时定时器
+        if self.countdown_timer is not None:
+            try:
+                self.countdown_timer.stop()
+            except Exception:
+                pass
+        feedback_timer = getattr(self, "_stand_up_feedback_timer", None)
+        if feedback_timer is not None:
+            try:
+                feedback_timer.stop()
+            except Exception:
+                pass
         rumps.quit_application()
 
 
