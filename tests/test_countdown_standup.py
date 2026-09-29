@@ -315,7 +315,6 @@ class DefaultConfigTests(unittest.TestCase):
         self.assertEqual(self.mod.DEFAULT_CONFIG["stand_up_last_reminder_time"], 0)
         self.assertEqual(self.mod.DEFAULT_CONFIG["countdown_duration_seconds"], 180)
 
-
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 
@@ -603,6 +602,92 @@ class ModalAlertVisibilityTests(unittest.TestCase):
         )
 
 
+class LimitWarningModalTests(unittest.TestCase):
+    """限额预警/严格模式提醒同样不能走失效的横幅通道。
+
+    这几条是整个 app 最要紧的告警（80% 预警、达到限额、超限持续提醒），
+    之前都用 send_notification，在 macOS 26 上用户一条都收不到。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_module()
+
+    def setUp(self):
+        self.app = _AppStub(self.mod)
+        cls = self.mod.AITimeGuardApp
+        self.app.on_tick = types.MethodType(cls.on_tick, self.app)
+        # on_tick 依赖的一堆运行时状态
+        self.app.today_key = str(self.mod.date.today())
+        self.app.history = {}
+        self.app.today_tools = {}
+        self.app.is_monitoring = True
+        self.app.active_detail = ""
+        self.app.warning_sent = False
+        self.app.limit_warning_sent = False
+        self.app.last_warning_time = 0
+        self.app.last_check_time = time.time()
+        self.app.last_history_save_time = time.time()
+        self.app.status_item = types.SimpleNamespace(title="")
+        self.app.today_item = types.SimpleNamespace(title="")
+        self.app.update_weekly_stats = lambda: None
+        self.app.update_stand_up_menu_title = lambda: None
+        self.app.config["daily_limit_minutes"] = 60
+        self.app.config["remind_interval_minutes"] = 15
+        # 关掉定时阻塞弹窗，本组用例只关心限额告警那条通道
+        self.app.config["periodic_alert_enabled"] = False
+        self.app.last_periodic_alert_usage_seconds = 0
+        # 让 AI 一直"在用"，且不写盘
+        self._patches = [
+            patch.object(self.mod, "check_ai_active", lambda cfg: (True, "Claude")),
+            patch.object(self.mod, "save_history", lambda h: None),
+        ]
+        for p in self._patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self._patches:
+            p.stop()
+
+    def _titles(self):
+        return [a["title"] for a in self.app.alerts]
+
+    def test_eighty_percent_warning_is_modal(self):
+        # 60 分钟限额的 80% = 48 分钟，用到 50 分钟应触发预警
+        self.app.today_seconds = 50 * 60
+        self.app.on_tick(None)
+        self.assertEqual(len(self.app.alerts), 1, f"应弹一次预警框: {self.app.alerts}")
+        self.assertIn("预警", self._titles()[0])
+
+    def test_limit_reached_warning_is_modal(self):
+        self.app.today_seconds = 61 * 60
+        self.app.on_tick(None)
+        self.assertTrue(
+            any("已到" in t for t in self._titles()),
+            f"达到限额应弹模态框，实际: {self._titles()}",
+        )
+
+    def test_strict_mode_repeat_warning_is_modal(self):
+        # 已发过"达到限额"，严格模式下到点应持续弹
+        self.app.limit_warning_sent = True
+        self.app.last_warning_time = time.time() - 16 * 60
+        self.app.config["strict_mode"] = True
+        self.app.today_seconds = 70 * 60
+        self.app.on_tick(None)
+        self.assertTrue(
+            any("还在用" in t for t in self._titles()),
+            f"严格模式应持续弹框，实际: {self._titles()}",
+        )
+
+    def test_warnings_never_use_banner_channel(self):
+        self.app.today_seconds = 70 * 60
+        self.app.on_tick(None)
+        self.assertEqual(
+            self.app.send_notification.calls, [],
+            "限额告警不应再走 send_notification 横幅通道",
+        )
+
+
 class CountdownDurationTests(unittest.TestCase):
     """倒计时时长可配置：1/2/3/5/10/15/20/30 分钟，记住上次选择。"""
 
@@ -665,10 +750,11 @@ class CountdownDurationTests(unittest.TestCase):
         self.assertFalse(next(i for i in self.items if i._mins == 3).state)
 
     def test_menu_labels_follow_selected_duration(self):
+        """选完时长直接开跑，菜单进入运行态并显示新时长"""
         item20 = next(i for i in self.items if i._mins == 20)
         self.app.set_countdown_duration(item20)
-        self.assertIn("20 分钟倒计时", self.app.countdown_menu.title)
-        self.assertEqual(self.app.countdown_action_item.title, "开始 20:00 倒计时")
+        self.assertIn("20:00", self.app.countdown_menu.title)
+        self.assertEqual(self.app.countdown_action_item.title, "取消倒计时")
 
     def test_cancel_restores_label_with_new_duration(self):
         item5 = next(i for i in self.items if i._mins == 5)
@@ -698,4 +784,211 @@ class CountdownDurationTests(unittest.TestCase):
         self.assertEqual(self.app.countdown_state, "running")
         self.assertEqual(self.app.countdown_remaining_seconds, 180)
 
+    def test_choosing_duration_while_idle_starts_countdown(self):
+        """空闲时选时长 = 直接开始，不用再点一次"开始" """
+        item1 = next(i for i in self.items if i._mins == 1)
+        self.app.set_countdown_duration(item1)
+        self.assertEqual(self.app.countdown_state, "running")
+        self.assertEqual(self.app.countdown_remaining_seconds, 60)
+        self.assertEqual(self.app.countdown_action_item.title, "取消倒计时")
 
+    def test_choosing_duration_after_finish_starts_fresh(self):
+        """已完成状态下选时长，按新时长重新开始"""
+        self.app.countdown_finished()
+        self.assertEqual(self.app.countdown_state, "finished")
+        item2 = next(i for i in self.items if i._mins == 2)
+        self.app.set_countdown_duration(item2)
+        self.assertEqual(self.app.countdown_state, "running")
+        self.assertEqual(self.app.countdown_remaining_seconds, 120)
+
+
+
+class TerminalAiToolTests(unittest.TestCase):
+    """终端里跑的 AI CLI 判定：关键字覆盖 + 多工具并存时的归属要稳定。
+
+    背景：原实现扫到一个就 break，进程遍历顺序不固定，多个 CLI 同时开着
+    时归属随机（同一段时间可能记到不同工具名下）。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_module()
+
+    def _match(self, cmd_str):
+        """按关键字表判断一个进程命令行对应哪个工具"""
+        for pattern, tool in self.mod.TERMINAL_AI_TOOLS:
+            if pattern in cmd_str:
+                return tool
+        return None
+
+    def test_kimi_code_is_recognized(self):
+        self.assertEqual(self._match("kimi-code "), "Kimi")
+
+    def test_kimi_client_is_recognized(self):
+        self.assertEqual(self._match("kimi-client"), "Kimi")
+
+    def test_plain_codex_is_recognized(self):
+        self.assertEqual(self._match("codex --full-auto"), "Codex")
+
+    def test_codex_internal_not_misread_as_plain_codex(self):
+        self.assertEqual(self._match("codex-internal"), "Codex Internal")
+
+    def test_claude_internal_not_misread_as_plain_claude(self):
+        self.assertEqual(self._match("claude-internal"), "Claude Internal")
+
+    def test_gemini_internal_not_misread_as_plain_gemini(self):
+        self.assertEqual(self._match("gemini internal"), "Gemini Internal")
+
+    def test_plain_claude_still_claude_code(self):
+        self.assertEqual(self._match("claude --resume"), "Claude Code")
+
+    def test_unrelated_process_not_matched(self):
+        self.assertIsNone(self._match("/usr/bin/ssh host"))
+
+    def test_pick_returns_none_when_no_candidates(self):
+        self.assertIsNone(self.mod._pick_terminal_ai_tool([]))
+
+    def test_pick_prefers_most_recently_started(self):
+        # 同时开着 Claude Code(旧) 和 Kimi(新) → 取新开的 Kimi
+        cands = [("Claude Code", 1000.0), ("Kimi", 2000.0)]
+        self.assertEqual(self.mod._pick_terminal_ai_tool(cands), "Kimi")
+
+    def test_pick_is_deterministic_on_tie(self):
+        """启动时间相同时必须稳定，不能每次扫描结果都变"""
+        a = [("Kimi", 1000.0), ("Claude Code", 1000.0)]
+        b = [("Claude Code", 1000.0), ("Kimi", 1000.0)]
+        first = self.mod._pick_terminal_ai_tool(list(a))
+        self.assertEqual(self.mod._pick_terminal_ai_tool(list(a)), first)
+        self.assertEqual(self.mod._pick_terminal_ai_tool(list(b)), first)
+
+    def test_pick_ignores_duplicate_entries_of_same_tool(self):
+        cands = [("Kimi", 1000.0), ("Kimi", 2000.0), ("Claude Code", 1500.0)]
+        self.assertEqual(self.mod._pick_terminal_ai_tool(cands), "Kimi")
+
+    def test_candidate_order_is_stable_regardless_of_input_order(self):
+        """同一组候选、不同输入顺序，必须得出同一个结果"""
+        a = [("Kimi", 2000.0), ("Claude Code", 1000.0), ("Codex", 1500.0)]
+        b = [("Codex", 1500.0), ("Kimi", 2000.0), ("Claude Code", 1000.0)]
+        self.assertEqual(
+            self.mod._pick_terminal_ai_tool(a), self.mod._pick_terminal_ai_tool(b)
+        )
+
+
+class AntigravityCliTests(unittest.TestCase):
+    """agy (Antigravity CLI) 的识别。
+
+    两个坑：
+    1) 短名字 "agy" 做子串匹配会误伤 legacy 之类，只能认可执行名精确相等
+    2) `agy --bg-updater` 是后台更新器，不是真实会话，但它的命令行里含
+       "antigravity-cli"，子串匹配会把它误判成 Antigravity
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_module()
+
+    def test_exact_exe_name_agy(self):
+        self.assertEqual(self.mod._exact_exe_tool("agy", ["agy"]), "Antigravity")
+
+    def test_exact_exe_name_with_full_path(self):
+        """真实命令行是 /Users/dang/.local/bin/agy，要取 basename"""
+        self.assertEqual(
+            self.mod._exact_exe_tool("agy", ["/Users/dang/.local/bin/agy"]),
+            "Antigravity",
+        )
+
+    def test_exact_exe_rejects_legacy_substring(self):
+        """子串误伤防护：legacy 不该被判成 Antigravity"""
+        self.assertIsNone(self.mod._exact_exe_tool("legacy", ["legacy"]))
+
+    def test_exact_exe_rejects_path_containing_agy(self):
+        """路径里带 agy 也不算，得是真正可执行名"""
+        self.assertIsNone(
+            self.mod._exact_exe_tool("node", ["/opt/agy-tools/run.js"])
+        )
+
+    def test_exact_exe_rejects_unrelated(self):
+        self.assertIsNone(self.mod._exact_exe_tool("zsh", ["/bin/zsh"]))
+
+    def test_exact_exe_handles_missing_cmdline(self):
+        self.assertIsNone(self.mod._exact_exe_tool("foo", None))
+
+    def test_bg_updater_flag_detected(self):
+        self.assertTrue(self.mod._is_background_helper(
+            "/Users/dang/.local/bin/agy --bg-updater --app_data_dir=antigravity-cli"
+        ))
+
+    def test_real_session_is_not_background_helper(self):
+        self.assertFalse(self.mod._is_background_helper("agy"))
+        self.assertFalse(self.mod._is_background_helper("claude"))
+
+    def test_antigravity_keyword_still_maps_in_resource_patterns(self):
+        """GUI 版 Antigravity 应用要继续认得出（走 ai_tool_patterns）"""
+        found = None
+        for tool_name, patterns in self.mod.ai_tool_patterns:
+            if any(p in "antigravity" for p in patterns):
+                found = tool_name
+        self.assertEqual(found, "Antigravity")
+
+    def test_infer_tool_name_handles_antigravity(self):
+        self.assertEqual(self.mod.infer_tool_name("Antigravity（终端前台）"), "Antigravity")
+
+
+class StandUpStateRestoreTests(unittest.TestCase):
+    """站立提醒的启动恢复：倒计时不能因为应用重启被清零
+
+    回归背景：__init__ 里 saved_last <= 0 时用 time.time() 兜底，但从不落盘。
+    配置里于是一直是 0，每次重启都被当成"从未提醒"，倒计时从头开始。
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_module()
+        cls.writes = []
+        cls.mod.save_config = lambda cfg: cls.writes.append(dict(cfg))
+
+    def _fresh_app(self, enabled=True, last=0):
+        app = _AppStub(self.mod)
+        app.config["stand_up_enabled"] = enabled
+        app.config["stand_up_last_reminder_time"] = last
+        app._restore_stand_up_state = types.MethodType(
+            self.mod.AITimeGuardApp._restore_stand_up_state, app
+        )
+        return app
+
+    def setUp(self):
+        type(self).writes.clear()
+
+    def test_zero_fallback_is_persisted(self):
+        app = self._fresh_app(enabled=True, last=0)
+        app._restore_stand_up_state()
+        self.assertGreater(app.stand_up_last_reminder_time, 0)
+        self.assertEqual(len(self.writes), 1, "兜底时间必须落盘，否则下次重启又被当成 0")
+        self.assertAlmostEqual(
+            self.writes[0]["stand_up_last_reminder_time"],
+            app.stand_up_last_reminder_time,
+            places=3,
+        )
+
+    def test_existing_timestamp_preserved_without_rewrite(self):
+        stamp = time.time() - 20 * 60
+        app = self._fresh_app(enabled=True, last=stamp)
+        app._restore_stand_up_state()
+        self.assertAlmostEqual(app.stand_up_last_reminder_time, stamp, places=3)
+        self.assertEqual(self.writes, [], "有效时间戳不该被无谓重写")
+
+    def test_restart_keeps_countdown_instead_of_resetting(self):
+        """完整回归：首启把 0 落盘 → 再次启动必须读回首启值，而不是重置为当下"""
+        first_app = self._fresh_app(enabled=True, last=0)
+        first_app._restore_stand_up_state()
+        persisted = first_app.config["stand_up_last_reminder_time"]
+        self.assertGreater(persisted, 0)
+
+        time.sleep(0.05)
+        second_app = self._fresh_app(enabled=True, last=persisted)
+        second_app._restore_stand_up_state()
+        # 等于上次落盘的时间（已流逝），而不是 time.time()
+        self.assertLess(second_app.stand_up_last_reminder_time, time.time() - 0.01)
+        self.assertAlmostEqual(
+            second_app.stand_up_last_reminder_time, persisted, places=3
+        )

@@ -405,6 +405,191 @@ _terminal_ai_cache = {
     "ttl": 3,  # 终端进程扫描缓存（秒）
 }
 
+# 终端里可能跑的 AI CLI。顺序敏感：更具体的（*-internal）必须排在前面，
+# 否则 "claude-internal" 会被 "claude" 先匹配走。
+TERMINAL_AI_TOOLS = (
+    ("claude-internal", "Claude Internal"),
+    ("claude internal", "Claude Internal"),
+    ("claude", "Claude Code"),
+    ("gemini-internal", "Gemini Internal"),
+    ("gemini internal", "Gemini Internal"),
+    ("gemini", "Gemini"),
+    ("codex-internal", "Codex Internal"),
+    ("codex internal", "Codex Internal"),
+    ("codex", "Codex"),
+    ("workbuddy", "WorkBuddy"),
+    ("work buddy", "WorkBuddy"),
+    ("kimi", "Kimi"),
+)
+
+
+def _match_terminal_ai_tool(cmd_str):
+    """命令行 → 工具名；匹配不上返回 None"""
+    for pattern, tool in TERMINAL_AI_TOOLS:
+        if pattern in cmd_str:
+            return tool
+    return None
+
+
+# 可执行名必须完全相等才认的工具。
+# "agy" 只有三个字母，做子串匹配会误伤 legacy / agyl / 任何路径里含 agy
+# 的东西；而真实会话的命令行就是光秃秃一个 "agy"，子串匹配反而抓不到。
+AI_TOOL_EXACT_EXE = {
+    "agy": "Antigravity",
+}
+
+# 后台常驻进程（更新器等），不是真实的 AI 会话。
+# `agy --bg-updater` 的命令行里含 "antigravity-cli"，子串匹配会把它误判成
+# Antigravity，而真正的两个 agy 会话反而认不出来——方向正好反了。
+AI_TOOL_BG_FLAGS = ("--bg-updater",)
+
+# 资源面板用的进程关键字（工具名, 关键字列表）。这里的"antigravity"只能认出
+# GUI 版 Antigravity 应用——CLI 的可执行名是 agy，认不出来，见 AI_TOOL_EXACT_EXE。
+ai_tool_patterns = [
+    ('CodeBuddy', ['codebuddy', 'code buddy']),
+    ('WorkBuddy', ['workbuddy', 'work buddy']),
+    ('Cursor', ['cursor']),
+    ('Claude Code', ['claude']),
+    ('Claude Internal', ['claude-internal']),
+    ('Gemini', ['gemini']),
+    ('Gemini Internal', ['gemini-internal']),
+    ('Codex', ['codex']),
+    ('Codex Internal', ['codex-internal']),
+    ('Kimi', ['kimi', 'kimi-client']),
+    ('Antigravity', ['antigravity']),
+]
+
+
+def _is_background_helper(cmd_str):
+    """是否是后台辅助进程（更新器等），这类不该计入使用时间"""
+    return any(flag in cmd_str for flag in AI_TOOL_BG_FLAGS)
+
+
+def _exact_exe_tool(name, cmdline):
+    """按可执行名精确匹配 AI 工具，匹配不上返回 None
+
+    优先用 cmdline[0] 的 basename——真实命令行是 /Users/dang/.local/bin/agy，
+    psutil 的 name 字段在不同环境下时而是 agy 时而是完整路径。
+    """
+    base = name
+    if cmdline:
+        candidate = os.path.basename(cmdline[0])
+        if candidate:
+            base = candidate
+    return AI_TOOL_EXACT_EXE.get(base)
+
+
+def _pick_terminal_ai_tool(candidates):
+    """从候选里挑一个工具名，结果必须稳定。
+
+    candidates: [(工具名, 进程启动时间), ...]
+    规则：取启动时间最新的（通常是最后开的那个）；时间相同再按名字排，
+    保证同一组候选无论扫描顺序如何都得出同一个结果。
+    """
+    if not candidates:
+        return None
+    best = max(candidates, key=lambda c: (c[1], c[0]))
+    return best[0]
+
+
+def _tty_foreground_pgids():
+    """返回 {tty 名: 该 tty 的前台进程组 pid}
+
+    macOS 禁止对别人的 tty 调 TIOCGPGRP（ENOTTY），只有 ps 的 tpgid 列可用。
+    用来判断"这个 CLI 是不是它所在终端的前台进程"——你切到别的窗格时，
+    它就不该再被算作正在使用。
+    """
+    mapping = {}
+    try:
+        result = subprocess.run(
+            ["ps", "-axo", "tty=,tpgid="],
+            capture_output=True, text=True, timeout=3,
+        )
+        if result.returncode != 0:
+            return mapping
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            try:
+                mapping[parts[0]] = int(parts[1])
+            except ValueError:
+                continue
+    except Exception:
+        pass
+    return mapping
+
+
+def find_terminal_ai_tools():
+    """扫描所有终端里跑的 AI CLI，返回 [(工具名, 启动时间), ...]
+
+    优先只认"自己 tty 的前台进程"；万一一个都没有（ps 拿不到、或某些 CLI
+    不占前台），退回"只要挂在 tty 上就算"，避免把原来能检出的情况判没了。
+    """
+    foreground = _tty_foreground_pgids()
+    in_foreground = []
+    merely_has_tty = []
+
+    for proc in psutil.process_iter(['name', 'cmdline', 'ppid', 'status']):
+        try:
+            cmdline = proc.info.get('cmdline') or []
+            cmd_str = ' '.join(cmdline).lower()
+            if 'ai_time_guard' in cmd_str:
+                continue
+            # 后台更新器之类的常驻进程不算真实会话
+            if _is_background_helper(cmd_str):
+                continue
+
+            tty = None
+            try:
+                tty = proc.terminal()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+
+            name = (proc.info.get('name') or '').lower()
+            tool = (
+                _match_terminal_ai_tool(cmd_str)
+                or _match_terminal_ai_tool(name)
+                or _exact_exe_tool(name, cmdline)
+            )
+            if not tool:
+                continue
+
+            # node 包装的 claude 进程可能没挂 tty，靠可执行名兜底
+            is_node_claude = (
+                name == 'node' and cmdline
+                and cmdline[0].lower() == 'claude'
+            )
+            if not tty:
+                if is_node_claude:
+                    merely_has_tty.append((tool, proc.create_time()))
+                continue
+
+            try:
+                started = proc.create_time()
+            except Exception:
+                started = 0.0
+
+            entry = (tool, started)
+            tty_name = tty.split("/")[-1]
+            if foreground.get(tty_name) == proc.pid:
+                in_foreground.append(entry)
+            else:
+                merely_has_tty.append(entry)
+
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+        except (SystemError, OSError, RuntimeError):
+            continue
+
+    picked = in_foreground if in_foreground else merely_has_tty
+    # 同一工具可能开了多个进程（主进程 + 子进程），去重但保留最新启动时间
+    latest = {}
+    for tool, started in picked:
+        if tool not in latest or started > latest[tool]:
+            latest[tool] = started
+    return [(tool, started) for tool, started in latest.items()]
+
 
 def check_terminal_has_ai_tool():
     """检查终端中是否有活跃的 AI CLI 工具进程，返回工具名或 None"""
@@ -412,65 +597,7 @@ def check_terminal_has_ai_tool():
     if now - _terminal_ai_cache["last_check"] < _terminal_ai_cache["ttl"]:
         return _terminal_ai_cache["tool"]
 
-    tool = None
-    for proc in psutil.process_iter(['name', 'cmdline', 'ppid', 'status']):
-        try:
-            cmdline = proc.info.get('cmdline') or []
-            cmd_str = ' '.join(cmdline).lower()
-            if 'ai_time_guard' in cmd_str:
-                continue
-
-            # 检查是否有 tty（前台交互式进程）
-            has_tty = False
-            try:
-                terminal = proc.terminal()
-                if terminal:
-                    has_tty = True
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
-
-            name = (proc.info.get('name') or '').lower()
-
-            # Claude CLI (claude)
-            if 'claude' in cmd_str and 'internal' not in cmd_str:
-                if has_tty or (name == 'node' and len(cmdline) > 0 and cmdline[0].lower() == 'claude'):
-                    tool = "Claude Code"
-                    break
-
-            # Claude Internal CLI (claude-internal)
-            if 'claude-internal' in cmd_str or 'claude internal' in cmd_str:
-                if has_tty:
-                    tool = "Claude Internal"
-                    break
-
-            # Gemini CLI (gemini)
-            if 'gemini' in cmd_str and 'internal' not in cmd_str:
-                if has_tty:
-                    tool = "Gemini"
-                    break
-
-            # Gemini Internal CLI (gemini-internal)
-            if 'gemini-internal' in cmd_str or 'gemini internal' in cmd_str:
-                if has_tty:
-                    tool = "Gemini Internal"
-                    break
-
-            # Codex Internal CLI (codex-internal)
-            if 'codex-internal' in cmd_str or 'codex internal' in cmd_str:
-                if has_tty:
-                    tool = "Codex Internal"
-                    break
-
-            # WorkBuddy CLI (workbuddy)
-            if 'workbuddy' in cmd_str or 'work buddy' in cmd_str:
-                if has_tty:
-                    tool = "WorkBuddy"
-                    break
-
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-            continue
-        except (SystemError, OSError, RuntimeError):
-            continue
+    tool = _pick_terminal_ai_tool(find_terminal_ai_tools())
 
     _terminal_ai_cache["tool"] = tool
     _terminal_ai_cache["last_check"] = now
@@ -497,20 +624,6 @@ def get_ai_tool_resource_usage(use_cache=True):
     resources = []
     
     # 定义要监控的进程关键字
-    ai_tool_patterns = [
-        ('CodeBuddy', ['codebuddy', 'code buddy']),
-        ('WorkBuddy', ['workbuddy', 'work buddy']),
-        ('Cursor', ['cursor']),
-        ('Claude Code', ['claude']),
-        ('Claude Internal', ['claude-internal']),
-        ('Gemini', ['gemini']),
-        ('Gemini Internal', ['gemini-internal']),
-        ('Codex', ['codex']),
-        ('Codex Internal', ['codex-internal']),
-        ('Kimi', ['kimi', 'kimi-client']),
-        ('Antigravity', ['antigravity']),
-    ]
-    
     seen_pids = set()
     
     for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'cpu_percent', 'memory_info', 'memory_percent']):
@@ -526,33 +639,43 @@ def get_ai_tool_resource_usage(use_cache=True):
             # 跳过自身
             if 'ai_time_guard' in cmd_str:
                 continue
-                
+
+            # 后台更新器之类的常驻进程，不是真实会话
+            if _is_background_helper(cmd_str):
+                continue
+
             # 匹配 AI 工具
+            matched_tool = None
             for tool_name, patterns in ai_tool_patterns:
-                matched = False
                 for pattern in patterns:
                     if pattern in cmd_str or pattern in name:
-                        matched = True
+                        matched_tool = tool_name
                         break
-                
-                if matched:
-                    seen_pids.add(pid)
-                    # 使用非阻塞方式获取 CPU（首次可能为 0，但响应快）
-                    try:
-                        proc_obj = psutil.Process(pid)
-                        cpu_percent = proc_obj.cpu_percent(interval=None)  # 非阻塞
-                        memory_mb = proc_obj.memory_info().rss / 1024 / 1024
-                        memory_percent = proc_obj.memory_percent()
-                        
-                        resources.append({
-                            'tool': tool_name,
-                            'pid': pid,
-                            'cpu_percent': round(cpu_percent, 1),
-                            'memory_mb': round(memory_mb, 1),
-                            'memory_percent': round(memory_percent, 2),
-                        })
-                    except (psutil.NoSuchProcess, psutil.AccessDenied):
-                        pass
+                if matched_tool:
+                    break
+
+            # 长关键字表抓不到的短名字工具（如 agy），按可执行名精确匹配兜底
+            if not matched_tool:
+                matched_tool = _exact_exe_tool(name, cmdline)
+
+            if matched_tool:
+                seen_pids.add(pid)
+                # 使用非阻塞方式获取 CPU（首次可能为 0，但响应快）
+                try:
+                    proc_obj = psutil.Process(pid)
+                    cpu_percent = proc_obj.cpu_percent(interval=None)  # 非阻塞
+                    memory_mb = proc_obj.memory_info().rss / 1024 / 1024
+                    memory_percent = proc_obj.memory_percent()
+
+                    resources.append({
+                        'tool': matched_tool,
+                        'pid': pid,
+                        'cpu_percent': round(cpu_percent, 1),
+                        'memory_mb': round(memory_mb, 1),
+                        'memory_percent': round(memory_percent, 2),
+                    })
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
                     break
                     
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
@@ -1334,14 +1457,7 @@ class AITimeGuardApp(rumps.App):
         self.countdown_timer = None
 
         # 45 分钟站立提醒状态（独立于 AI 监控，到点系统通知）
-        self.stand_up_interval_minutes = int(self.config.get("stand_up_interval_minutes", 45))
-        self.stand_up_enabled = bool(self.config.get("stand_up_enabled", False))
-        saved_last = float(self.config.get("stand_up_last_reminder_time", 0) or 0)
-        self.stand_up_last_reminder_time = saved_last if saved_last > 0 else time.time()
-        # 菜单栏标题显示方式：final5 = 仅剩 5 分钟时显示前缀；always = 始终显示
-        self.stand_up_title_mode = self.config.get("stand_up_title_mode", "final5")
-        if self.stand_up_title_mode not in ("final5", "always"):
-            self.stand_up_title_mode = "final5"
+        self._restore_stand_up_state()
 
         # 启动一次性诊断：确认菜单栏状态项是否创建并可见
         self.debug_timer = rumps.Timer(self.debug_status_item, 3)
@@ -1648,7 +1764,7 @@ class AITimeGuardApp(rumps.App):
         if today_min >= warn_at and not self.warning_sent and today_min < limit_min:
             self.warning_sent = True
             remaining = format_minutes(limit_min - today_min)
-            self.send_notification(
+            self.show_modal_alert(
                 "⚠️ AI 使用时间预警",
                 f"今日已使用 {format_minutes(today_min)}，"
                 f"剩余约 {remaining}。\n请注意控制使用时间！"
@@ -1659,7 +1775,7 @@ class AITimeGuardApp(rumps.App):
             if not self.limit_warning_sent:
                 self.limit_warning_sent = True
                 self.last_warning_time = now
-                self.send_notification(
+                self.show_modal_alert(
                     "🔴 AI 使用时间已到！",
                     f"今日已使用 {format_minutes(today_min)}，"
                     f"已达到 {format_minutes(limit_min)} 的限额。\n"
@@ -1670,7 +1786,7 @@ class AITimeGuardApp(rumps.App):
                   now - self.last_warning_time >= remind_interval):
                 self.last_warning_time = now
                 overtime = format_minutes(today_min - limit_min)
-                self.send_notification(
+                self.show_modal_alert(
                     "🔴 你还在用 AI！",
                     f"已超出限额 {overtime}，请立即休息！\n"
                     "你可以散散步、喝杯水，或者做些不需要 AI 的工作。"
@@ -1803,10 +1919,9 @@ class AITimeGuardApp(rumps.App):
         self.limit_warning_sent = False
         self.update_title()
 
-        rumps.notification(
-            title="限额已更新",
-            subtitle=APP_NAME,
-            message=f"每日限额已设为 {format_minutes(new_limit)}",
+        self.show_modal_alert(
+            "限额已更新",
+            f"每日限额已设为 {format_minutes(new_limit)}",
         )
 
     def toggle_strict(self, sender):
@@ -1826,10 +1941,9 @@ class AITimeGuardApp(rumps.App):
         # 重置计时，从现在开始算下一个周期
         self.last_periodic_alert_usage_seconds = self.today_seconds
 
-        rumps.notification(
-            title="定时提醒已更新",
-            subtitle=APP_NAME,
-            message=f"每 {format_minutes(new_interval)} 弹窗提醒一次",
+        self.show_modal_alert(
+            "定时提醒已更新",
+            f"每 {format_minutes(new_interval)} 弹窗提醒一次",
         )
 
     def toggle_periodic_alert(self, sender):
@@ -1954,7 +2068,11 @@ class AITimeGuardApp(rumps.App):
         )
 
     def set_countdown_duration(self, sender):
-        """选择倒计时时长，并记住该选择（下次启动沿用）"""
+        """选择倒计时时长，并记住该选择（下次启动沿用）
+
+        没在倒计时就直接开始，省掉再点一次"开始"；已经在跑了就只改时长，
+        不打断当前这次。
+        """
         new_minutes = int(sender._mins)
         self.countdown_duration_minutes = new_minutes
         self.countdown_duration_seconds = new_minutes * 60
@@ -1966,7 +2084,10 @@ class AITimeGuardApp(rumps.App):
             if hasattr(item, "_mins"):
                 item.state = (item._mins == new_minutes)
 
-        self.refresh_countdown_labels()
+        if self.countdown_state == "running":
+            self.refresh_countdown_labels()
+            return
+        self.start_countdown()
 
     def refresh_countdown_labels(self):
         """把菜单文案刷成当前时长；运行中只更新"取消"，避免打断正在跑的倒计时"""
@@ -1982,6 +2103,27 @@ class AITimeGuardApp(rumps.App):
         self.countdown_menu.title = f"🕒 {mins} 分钟倒计时"
 
     # ── 站立提醒 ───────────────────────────────────────────
+    def _restore_stand_up_state(self):
+        """从配置恢复站立提醒状态
+
+        关键点：配置里为 0（"从未提醒"）时用当前时间兜底，并**立刻落盘**。
+        否则配置永远是 0，每次重启都会被重新当成"从未提醒"，
+        倒计时每次都从头开始 —— 这正是之前"重启后站立提醒时间被重置"的根因。
+        """
+        self.stand_up_interval_minutes = int(self.config.get("stand_up_interval_minutes", 45))
+        self.stand_up_enabled = bool(self.config.get("stand_up_enabled", False))
+        saved_last = float(self.config.get("stand_up_last_reminder_time", 0) or 0)
+        if saved_last > 0:
+            self.stand_up_last_reminder_time = saved_last
+        else:
+            self.stand_up_last_reminder_time = time.time()
+            self.config["stand_up_last_reminder_time"] = self.stand_up_last_reminder_time
+            save_config(self.config)
+        # 菜单栏标题显示方式：final5 = 仅剩 5 分钟时显示前缀；always = 始终显示
+        self.stand_up_title_mode = self.config.get("stand_up_title_mode", "final5")
+        if self.stand_up_title_mode not in ("final5", "always"):
+            self.stand_up_title_mode = "final5"
+
     def toggle_stand_up(self, sender):
         """切换站立提醒开关"""
         self.stand_up_enabled = not self.stand_up_enabled
