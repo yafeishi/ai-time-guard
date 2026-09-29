@@ -315,6 +315,22 @@ class DefaultConfigTests(unittest.TestCase):
         self.assertEqual(self.mod.DEFAULT_CONFIG["stand_up_last_reminder_time"], 0)
         self.assertEqual(self.mod.DEFAULT_CONFIG["countdown_duration_seconds"], 180)
 
+    def test_title_mode_defaults_to_final5(self):
+        """菜单栏默认只在最后 5 分钟显示站立提醒前缀，不要改成常显"""
+        self.assertEqual(self.mod.DEFAULT_CONFIG["stand_up_title_mode"], "final5")
+
+    def test_restore_rejects_unknown_title_mode(self):
+        """配置里出现未知取值时兜底回 final5，而不是沿用脏值"""
+        app = _AppStub(self.mod)
+        app.config["stand_up_last_reminder_time"] = time.time()
+        app.config["stand_up_title_mode"] = "常显"
+        app._restore_stand_up_state = types.MethodType(
+            self.mod.AITimeGuardApp._restore_stand_up_state, app
+        )
+        app._restore_stand_up_state()
+        self.assertEqual(app.stand_up_title_mode, "final5")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 
