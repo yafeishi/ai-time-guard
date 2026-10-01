@@ -457,6 +457,8 @@ ai_tool_patterns = [
     ('Codex Internal', ['codex-internal']),
     ('Kimi', ['kimi', 'kimi-client']),
     ('Antigravity', ['antigravity']),
+    ('ZCode', ['zcode']),
+    ('MiniMax Code', ['minimax code', 'com.minimax.agent']),
 ]
 
 
@@ -698,6 +700,8 @@ FOREGROUND_APP_KEYWORDS = [
     "codex",
     "kimi", "kimi-client",
     "antigravity",
+    "zcode",
+    "minimax code", "com.minimax.agent",
 ]
 
 # Obsidian + AI 插件检测配置
@@ -758,6 +762,10 @@ def check_ai_active(config):
                 return True, "Kimi（前台）"
             elif "antigravity" in kw:
                 return True, "Antigravity（前台）"
+            elif "zcode" in kw:
+                return True, "ZCode（前台）"
+            elif "minimax" in kw:
+                return True, "MiniMax Code（前台）"
             else:
                 return True, "其他 AI 工具（前台）"
 
@@ -813,6 +821,10 @@ def infer_tool_name(active_detail):
         tool_name = "Kimi"
     elif "Antigravity" in active_detail:
         tool_name = "Antigravity"
+    elif "ZCode" in active_detail:
+        tool_name = "ZCode"
+    elif "MiniMax Code" in active_detail:
+        tool_name = "MiniMax Code"
     elif "AI" in active_detail:
         if "Obsidian" in active_detail:
             tool_name = "Obsidian + AI"

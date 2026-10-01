@@ -13,7 +13,8 @@ dashboard plus a shareable report card.
 ## Highlights
 
 - Tracks active time across Codex, Claude Code, Cursor, CodeBuddy, WorkBuddy,
-  Antigravity, Kimi, Windsurf, Trae, Zed, and selected AI-assisted note apps.
+  Antigravity, Kimi, ZCode, MiniMax Code, Windsurf, Trae, Zed, and selected
+  AI-assisted note apps.
 - Sets a daily time budget with warning, periodic reminder, and strict modes.
 - Shows daily, monthly, and yearly trends in a responsive local dashboard.
 - Produces a share card without sending usage history to a remote service.
