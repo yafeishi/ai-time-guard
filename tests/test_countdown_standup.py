@@ -283,7 +283,7 @@ class StandUpTests(unittest.TestCase):
         self.app.stand_up_last_reminder_time = 0
         self.app.toggle_stand_up(sender)
         self.assertTrue(self.app.stand_up_enabled)
-        self.assertTrue(sender.state)
+        self.assertFalse(sender.state)
         self.assertGreater(self.app.stand_up_last_reminder_time, 0)
         # 启用后应显示倒计时
         self.assertIn("下次", self.app.stand_up_menu.title)
@@ -1109,3 +1109,71 @@ class StandUpTrackingTests(unittest.TestCase):
             summary = self.mod.stand_up_summary(str(date.today()))
             self.assertEqual(summary["reminder_count"], 1)
             self.assertEqual(summary["stood_up_count"], 1)
+
+
+class StandUpPauseTests(unittest.TestCase):
+    def setUp(self):
+        self.mod = _load_module()
+        self.app = _AppStub(self.mod)
+        for name in ("pause_stand_up", "resume_expired_stand_up_pause", "toggle_stand_up", "_restore_stand_up_state"):
+            setattr(self.app, name, types.MethodType(getattr(self.mod.AITimeGuardApp, name), self.app))
+        self.app.fire_stand_up_reminder = unittest.mock.Mock()
+
+    def test_pause_duration_is_bounded_and_keeps_countdown(self):
+        for hours, expected in ((1, 3600), (2, 7200), (5, 7200)):
+            original = self.app.stand_up_last_reminder_time
+            self.app.config["stand_up_pending"] = True
+            with patch.object(self.mod.time, "time", return_value=10000):
+                self.app.pause_stand_up(types.SimpleNamespace(_hours=hours))
+            self.assertEqual(self.app.config["stand_up_pause_until"], 10000 + expected)
+            self.assertFalse(self.app.stand_up_enabled)
+            self.assertEqual(self.app.stand_up_last_reminder_time, original)
+            self.assertTrue(self.app.config["stand_up_pending"])
+
+    def test_expiry_resumes_once_and_reminds(self):
+        with patch.object(self.mod.time, "time", return_value=10000):
+            self.app.pause_stand_up(types.SimpleNamespace(_hours=1))
+            self.assertFalse(self.app.resume_expired_stand_up_pause())
+        with patch.object(self.mod.time, "time", return_value=13600):
+            self.assertTrue(self.app.resume_expired_stand_up_pause())
+            self.assertTrue(self.app.stand_up_enabled)
+            self.assertEqual(self.app.config["stand_up_pause_until"], 0)
+            self.assertFalse(self.app.resume_expired_stand_up_pause())
+        self.app.fire_stand_up_reminder.assert_called_once_with(force=True, resumed=True)
+
+    def test_restart_preserves_pause_deadline(self):
+        self.app.config["stand_up_enabled"] = False
+        self.app.config["stand_up_pause_until"] = 13600
+        self.app.config["stand_up_last_reminder_time"] = 9000
+        with patch.object(self.mod.time, "time", return_value=11000):
+            self.app._restore_stand_up_state()
+            self.assertFalse(self.app.resume_expired_stand_up_pause())
+        self.assertEqual(self.app.config["stand_up_pause_until"], 13600)
+        self.assertEqual(self.app.stand_up_last_reminder_time, 9000)
+
+    def test_manual_resume_clears_deadline_without_reset(self):
+        original = self.app.stand_up_last_reminder_time
+        self.app.pause_stand_up(None)
+        self.app.toggle_stand_up(self.app.stand_up_toggle_item)
+        self.assertEqual(self.app.config["stand_up_pause_until"], 0)
+        self.assertTrue(self.app.stand_up_enabled)
+        self.assertEqual(self.app.stand_up_last_reminder_time, original)
+
+
+class StandUpPauseMenuTests(unittest.TestCase):
+    def test_checks_only_show_actual_pause(self):
+        mod = _load_module()
+        app = _AppStub(mod)
+        app.stand_up_pause_menu = types.SimpleNamespace(title="", state=False)
+        app.stand_up_pause_items = [types.SimpleNamespace(_hours=h, state=False) for h in (1, 2)]
+        app.stand_up_enabled = True
+        mod.AITimeGuardApp.update_stand_up_pause_controls(app)
+        self.assertFalse(app.stand_up_toggle_item.state)
+        self.assertFalse(app.stand_up_pause_menu.state)
+        self.assertEqual([i.state for i in app.stand_up_pause_items], [False, False])
+        mod.AITimeGuardApp.pause_stand_up(app, types.SimpleNamespace(_hours=2))
+        self.assertTrue(app.stand_up_pause_menu.state)
+        self.assertEqual([i.state for i in app.stand_up_pause_items], [False, True])
+        mod.AITimeGuardApp.toggle_stand_up(app, app.stand_up_toggle_item)
+        self.assertFalse(app.stand_up_pause_menu.state)
+        self.assertEqual([i.state for i in app.stand_up_pause_items], [False, False])

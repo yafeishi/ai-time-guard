@@ -79,6 +79,8 @@ DEFAULT_CONFIG = {
     "stand_up_enabled": False,        # 是否启用站立提醒（默认关闭，按需启用）
     "stand_up_last_reminder_time": 0, # 上次提醒时间戳（秒），0 表示从未提醒
     "stand_up_pending": False,
+    "stand_up_pause_until": 0.0,
+    "stand_up_pause_hours": 0,
     "stand_up_title_mode": "final5",  # 菜单栏显示方式：final5 | always
     "countdown_duration_seconds": 180,# 菜单内倒计时时长（秒），记住用户上次选择
 }
@@ -1589,12 +1591,18 @@ class AITimeGuardApp(rumps.App):
 
         # ── 新增：站立提醒 ──
         self.stand_up_menu = rumps.MenuItem("🧍 站立提醒")
-        self.stand_up_toggle_item = rumps.MenuItem(
-            "禁用站立提醒" if self.stand_up_enabled else "启用站立提醒",
-            callback=self.toggle_stand_up,
-        )
-        self.stand_up_toggle_item.state = self.stand_up_enabled
-        self.stand_up_menu.add(self.stand_up_toggle_item)
+        self.stand_up_pause_menu = rumps.MenuItem("暂停站立提醒")
+        self.stand_up_toggle_item = rumps.MenuItem("启用站立提醒", callback=self.toggle_stand_up)
+        self.stand_up_pause_menu.add(self.stand_up_toggle_item)
+        self.stand_up_pause_menu.add(rumps.separator)
+        self.stand_up_pause_items = []
+        for hours in (1, 2):
+            item = rumps.MenuItem(f"暂停 {hours} 小时（到期自动恢复）", callback=self.pause_stand_up)
+            item._hours = hours
+            self.stand_up_pause_items.append(item)
+            self.stand_up_pause_menu.add(item)
+        self.stand_up_menu.add(self.stand_up_pause_menu)
+        self.update_stand_up_pause_controls()
 
         self.stand_up_interval_submenu = rumps.MenuItem("调整间隔")
         for mins in [30, 45, 60, 90, 120]:
@@ -1753,8 +1761,10 @@ class AITimeGuardApp(rumps.App):
             self.warning_sent = False
             self.limit_warning_sent = False
 
+        # 到期恢复先发一次提醒，避免同一个 tick 重复弹窗。
+        resumed = AITimeGuardApp.resume_expired_stand_up_pause(self)
         # 站立提醒独立于 AI 监控：即使监控暂停也要到点提醒
-        if self.stand_up_enabled:
+        if self.stand_up_enabled and not resumed:
             self.fire_stand_up_reminder()
 
         # 刷新菜单栏标题（站立倒计时前缀）和下拉里的近 7 天可视化
@@ -2186,8 +2196,13 @@ class AITimeGuardApp(rumps.App):
 
     def toggle_stand_up(self, sender):
         """切换站立提醒开关"""
-        self.stand_up_enabled = not self.stand_up_enabled
-        sender.state = self.stand_up_enabled
+        if self.stand_up_enabled:
+            AITimeGuardApp.pause_stand_up(self, None)
+            sender.state = False
+            return
+        self.config["stand_up_pause_until"] = 0.0
+        self.stand_up_enabled = True
+        sender.state = False
         self.config["stand_up_enabled"] = self.stand_up_enabled
         if self.stand_up_enabled and self.stand_up_last_reminder_time <= 0:
             # 仅首次启用建立起点；关闭再启用保留已累计时间
@@ -2197,11 +2212,48 @@ class AITimeGuardApp(rumps.App):
         self.update_stand_up_menu_title()
         # 菜单栏标题前缀也要立刻刷，否则要等下一个 on_tick 才看到
         self.update_title()
-        # 开关项的标签也跟随状态切换，让用户关闭重开后能立刻看到
-        if self.stand_up_enabled:
-            self.stand_up_toggle_item.title = "禁用站立提醒"
-        else:
-            self.stand_up_toggle_item.title = "启用站立提醒"
+        AITimeGuardApp.update_stand_up_pause_controls(self)
+
+    def update_stand_up_pause_controls(self):
+        paused = not self.stand_up_enabled and bool(self.config.get("stand_up_pause_until", 0))
+        self.stand_up_toggle_item.state = False
+        self.stand_up_toggle_item.title = (
+            "立即恢复站立提醒" if paused else
+            "站立提醒已启用" if self.stand_up_enabled else "启用站立提醒"
+        )
+        # 状态文字不可点击；恢复和首次启用是动作，均不使用勾选。
+        if hasattr(self.stand_up_toggle_item, "set_callback"):
+            self.stand_up_toggle_item.set_callback(None if self.stand_up_enabled else self.toggle_stand_up)
+        if hasattr(self, "stand_up_pause_menu"):
+            self.stand_up_pause_menu.state = paused
+            self.stand_up_pause_menu.title = "暂停站立提醒（暂停中）" if paused else "暂停站立提醒"
+        for item in getattr(self, "stand_up_pause_items", []):
+            item.state = paused and item._hours == self.config.get("stand_up_pause_hours", 0)
+
+    def pause_stand_up(self, sender):
+        """限时静音提醒，保留计时起点和待站立状态。"""
+        hours = max(1, min(2, int(getattr(sender, "_hours", 2))))
+        self.config["stand_up_pause_hours"] = hours
+        self.config["stand_up_pause_until"] = time.time() + hours * 3600
+        self.config["stand_up_enabled"] = False
+        self.stand_up_enabled = False
+        self.stand_up_toggle_item.state = False
+        AITimeGuardApp.update_stand_up_pause_controls(self)
+        save_config(self.config)
+        self.update_stand_up_menu_title()
+        self.update_title()
+
+    def resume_expired_stand_up_pause(self):
+        until = self.config.get("stand_up_pause_until", 0)
+        if not until or time.time() < until:
+            return False
+        self.config["stand_up_pause_until"] = 0.0
+        self.config["stand_up_enabled"] = True
+        self.stand_up_enabled = True
+        AITimeGuardApp.update_stand_up_pause_controls(self)
+        save_config(self.config)
+        self.fire_stand_up_reminder(force=True, resumed=True)
+        return True
 
     def set_stand_up_interval(self, sender):
         """调整站立提醒间隔（分钟）"""
@@ -2223,7 +2275,7 @@ class AITimeGuardApp(rumps.App):
         # 菜单标题给可见反馈
         self._show_stand_up_feedback("已发送 ✅")
 
-    def fire_stand_up_reminder(self, force=False):
+    def fire_stand_up_reminder(self, force=False, resumed=False):
         """到点时由 on_tick 调用；force=True 表示手动测试"""
         now = time.time()
         pending = self.config.get("stand_up_pending", False)
@@ -2236,7 +2288,7 @@ class AITimeGuardApp(rumps.App):
         save_config(self.config)
         record_stand_up_event("reminders")
         result = self.show_modal_alert(
-            "🧍 站起来活动一下",
+            "🧍 暂停已到期，站立提醒已恢复" if resumed else "🧍 站起来活动一下",
             "还没有记录站立，请站起来活动肩颈、眺望远处。\n"
             "点击“我已经站立”记录并开始下一轮倒计时。\n"
             "点击“知道了”将于 5 分钟后再次提醒。",
@@ -2258,10 +2310,17 @@ class AITimeGuardApp(rumps.App):
     def update_stand_up_menu_title(self):
         """根据开关、间隔、上次提醒时间刷新菜单标题（禁用时也显示间隔）"""
         now = time.time()
+        AITimeGuardApp.update_stand_up_pause_controls(self)
         feedback_text = getattr(self, "_stand_up_feedback_text", "")
         feedback_expire = getattr(self, "_stand_up_feedback_expire", 0)
         if feedback_text and feedback_expire > now:
             self.stand_up_menu.title = f"🧍 站立提醒（{feedback_text}）"
+            return
+        until = self.config.get("stand_up_pause_until", 0)
+        if not self.stand_up_enabled and until:
+            remaining = max(0, int(until - now))
+            self.stand_up_menu.title = f"🧍 站立提醒（暂停中 · {format_duration(remaining)} 后恢复）"
+            self.stand_up_toggle_item.title = "立即恢复站立提醒"
             return
         if not self.stand_up_enabled:
             self.stand_up_menu.title = f"🧍 站立提醒（{self.stand_up_interval_minutes} 分钟）"
