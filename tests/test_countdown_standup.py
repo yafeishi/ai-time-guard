@@ -4,6 +4,9 @@ import sys
 import time
 import types
 import unittest
+import tempfile
+from pathlib import Path
+from datetime import date, timedelta
 from unittest.mock import patch
 
 
@@ -59,7 +62,10 @@ def _load_module():
         mod = importlib.import_module("ai_time_guard")
     # 纯文本渲染路径不受 AppKit 影响，强制走它，便于断言字符串
     mod.HAS_APPKIT = False
+    mod.save_config = lambda config: None  # 所有单元测试禁止覆盖真实用户配置
     mod.RUMPS_ALERT_CALLS = alert_calls
+    mod.REAL_RECORD_STAND_UP_EVENT = mod.record_stand_up_event
+    mod.record_stand_up_event = lambda kind: None
     return mod
 
 
@@ -292,14 +298,23 @@ class StandUpTests(unittest.TestCase):
         # Disabling should NOT reset last reminder (so enabling later respects history)
         self.assertEqual(self.app.stand_up_last_reminder_time, before)
 
-    def test_set_interval_resets_last_time_and_state(self):
+    def test_reenable_keeps_elapsed_time_and_pending_state(self):
+        self.app.stand_up_enabled = False
+        self.app.stand_up_last_reminder_time = time.time() - 30 * 60
+        self.app.config["stand_up_pending"] = True
+        before = self.app.stand_up_last_reminder_time
+        self.app.toggle_stand_up(types.SimpleNamespace(state=False))
+        self.assertEqual(self.app.stand_up_last_reminder_time, before)
+        self.assertTrue(self.app.config["stand_up_pending"])
+
+    def test_set_interval_preserves_last_time_and_state(self):
         # Find the 60-minute item
         item60 = next(i for i in self.app.stand_up_interval_submenu.values() if i._mins == 60)
         item60.state = False
         before_last = self.app.stand_up_last_reminder_time
         self.app.set_stand_up_interval(item60)
         self.assertEqual(self.app.stand_up_interval_minutes, 60)
-        self.assertGreater(self.app.stand_up_last_reminder_time, before_last)
+        self.assertEqual(self.app.stand_up_last_reminder_time, before_last)
         # 默认是禁用状态，标题显示新的间隔（无倒计时）
         self.assertIn("60 分钟", self.app.stand_up_menu.title)
 
@@ -413,7 +428,7 @@ class WeeklyChartTests(unittest.TestCase):
         app.update_weekly_stats()
         # 日期标签占 5 个显示列，所以 "  今天" 之前只有 1 个空格
         self.assertIn("   今天", days[6].title)
-        self.assertIn("  09/2", days[0].title)
+        self.assertIn("  " + (date.today() - timedelta(days=6)).strftime("%m/%d"), days[0].title)
 
     def test_update_weekly_stats_uses_realtime_today(self):
         """当 history 里今日数据滞后于 self.today_seconds，应以实时为准"""
@@ -1008,3 +1023,48 @@ class StandUpStateRestoreTests(unittest.TestCase):
         self.assertAlmostEqual(
             second_app.stand_up_last_reminder_time, persisted, places=3
         )
+
+    def test_restart_preserves_overdue_pending_reminder(self):
+        stamp = time.time() - 10 * 60
+        app = self._fresh_app(last=stamp)
+        app.config["stand_up_pending"] = True
+        app._restore_stand_up_state()
+        self.assertEqual(app.stand_up_last_reminder_time, stamp)
+        self.assertTrue(app.config["stand_up_pending"])
+        self.assertEqual(self.writes, [])
+
+
+class StandUpTrackingTests(unittest.TestCase):
+    def setUp(self):
+        self.mod = _load_module()
+        self.app = _AppStub(self.mod)
+        self.events = []
+        self.mod.record_stand_up_event = self.events.append
+        self.app.fire_stand_up_reminder = types.MethodType(self.mod.AITimeGuardApp.fire_stand_up_reminder, self.app)
+
+    def test_acknowledgement_retries_without_recording_standing(self):
+        with patch.object(self.mod, "save_config"), patch.object(self.mod.rumps, "alert", return_value=0), patch.object(self.mod.time, "time", return_value=10000):
+            self.app.stand_up_last_reminder_time = 0
+            self.app.fire_stand_up_reminder()
+            self.assertEqual(self.events, ["reminders"])
+            self.assertTrue(self.app.config["stand_up_pending"])
+        with patch.object(self.mod, "save_config"), patch.object(self.mod.rumps, "alert", return_value=0), patch.object(self.mod.time, "time", return_value=10300):
+            self.app.fire_stand_up_reminder()
+            self.assertEqual(self.events, ["reminders", "reminders"])
+
+    def test_confirmation_records_standing_and_restarts_interval(self):
+        with patch.object(self.mod, "save_config"), patch.object(self.mod.rumps, "alert", return_value=1):
+            self.app.fire_stand_up_reminder(force=True)
+            self.assertEqual(self.events, ["reminders", "stood_up"])
+            self.assertFalse(self.app.config["stand_up_pending"])
+            self.app.fire_stand_up_reminder()
+            self.assertEqual(len(self.events), 2)
+
+    def test_events_persist_and_daily_api_returns_counts(self):
+        # 重新导入以使用真实文件记录函数；只写临时目录。
+        with tempfile.TemporaryDirectory() as directory, patch.object(self.mod, "STAND_UP_FILE", Path(directory) / "stand-up.json"), patch.object(self.mod, "ensure_config_dir"):
+            self.mod.REAL_RECORD_STAND_UP_EVENT("reminders")
+            self.mod.REAL_RECORD_STAND_UP_EVENT("stood_up")
+            summary = self.mod.stand_up_summary(str(date.today()))
+            self.assertEqual(summary["reminder_count"], 1)
+            self.assertEqual(summary["stood_up_count"], 1)

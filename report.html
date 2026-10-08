@@ -1027,6 +1027,12 @@
     </div>
   </div>
 
+  <div class="progress-section">
+    <div class="progress-header"><span class="progress-title">今日站立记录</span></div>
+    <p id="standUpToday">提醒 0 次 · 已站立 0 次</p>
+    <div id="standUpHistory" class="stat-sub"></div>
+  </div>
+
   <!-- 今日进度 -->
   <div class="progress-section">
     <div class="progress-header">
@@ -1676,6 +1682,16 @@ function render(data) {
     dotEl.style.background = 'var(--text2)';
     dotEl.style.animation = 'none';
   }
+
+  const standDays = report.stand_up || {};
+  const standToday = standDays[today] || {};
+  const reminders = standToday.reminder_count ?? (standToday.reminders || []).length;
+  const stood = standToday.stood_up_count ?? (standToday.stood_up || []).length;
+  document.getElementById('standUpToday').textContent = `提醒 ${reminders} 次 · 已站立 ${stood} 次`;
+  document.getElementById('standUpHistory').textContent = Array.from({length: 7}, (_, i) => {
+    const key = getDateStr(i), day = standDays[key] || {};
+    return `${key}：提醒 ${day.reminder_count ?? (day.reminders || []).length} 次，站立 ${day.stood_up_count ?? (day.stood_up || []).length} 次`;
+  }).join(' ｜ ');
 
   // 概览卡片
   document.getElementById('todayUsed').textContent = fmtDuration(todaySec);

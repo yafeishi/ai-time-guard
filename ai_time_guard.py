@@ -55,6 +55,9 @@ APP_NAME = "AI Time Guard"
 CONFIG_DIR = Path.home() / ".ai-time-guard"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 HISTORY_FILE = CONFIG_DIR / "history.json"
+STAND_UP_FILE = CONFIG_DIR / "stand-up.json"
+STAND_UP_RETRY_SECONDS = 5 * 60
+
 DEBUG_LOG_FILE = CONFIG_DIR / "debug.log"
 
 HISTORY_SAVE_INTERVAL_SECONDS = 60  # 历史数据写入节流间隔（秒）
@@ -75,6 +78,7 @@ DEFAULT_CONFIG = {
     "stand_up_interval_minutes": 45,  # 站立活动提醒间隔（分钟）
     "stand_up_enabled": False,        # 是否启用站立提醒（默认关闭，按需启用）
     "stand_up_last_reminder_time": 0, # 上次提醒时间戳（秒），0 表示从未提醒
+    "stand_up_pending": False,
     "stand_up_title_mode": "final5",  # 菜单栏显示方式：final5 | always
     "countdown_duration_seconds": 180,# 菜单内倒计时时长（秒），记住用户上次选择
 }
@@ -141,6 +145,30 @@ def save_history(history):
     ensure_config_dir()
     with open(HISTORY_FILE, "w") as f:
         json.dump(history, f, indent=2, ensure_ascii=False)
+
+
+def load_stand_up_history():
+    if STAND_UP_FILE.exists():
+        with open(STAND_UP_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+
+def record_stand_up_event(kind):
+    """单独存储事件，避免 AI 时长保存覆盖站立记录。"""
+    ensure_config_dir()
+    history = load_stand_up_history()
+    day = history.setdefault(str(date.today()), {"reminders": [], "stood_up": []})
+    day[kind].append(datetime.now().isoformat())
+    temporary = STAND_UP_FILE.with_suffix(".tmp")
+    temporary.write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(STAND_UP_FILE)
+
+
+def stand_up_summary(date_str):
+    day = load_stand_up_history().get(date_str, {})
+    return {"reminder_count": len(day.get("reminders", [])),
+            "stood_up_count": len(day.get("stood_up", [])), **day}
 
 
 # ── NSColor 工厂：用名字解析为 NSColor 实例（无 AppKit 时全为 None） ──
@@ -1098,6 +1126,7 @@ class ReportHandler(SimpleHTTPRequestHandler):
 
         return {
             "date": today_key,
+            "stand_up": stand_up_summary(today_key),
             "total_seconds": today_seconds,
             "tools": today_tools,
             "limit_minutes": config.get("daily_limit_minutes", 180),
@@ -1133,6 +1162,7 @@ class ReportHandler(SimpleHTTPRequestHandler):
 
         return {
             "date": date_str,
+            "stand_up": stand_up_summary(date_str),
             "total_seconds": total,
             "tools": tools,
             "limit_minutes": config.get("daily_limit_minutes", 180),
@@ -1395,7 +1425,8 @@ class ReportHandler(SimpleHTTPRequestHandler):
         else:
             history = load_history()
             config = load_config()
-        return {"history": history, "config": config, "status": status}
+        return {"history": history, "config": config, "status": status,
+                "stand_up": load_stand_up_history()}
 
     def send_json_response(self, data, status=200):
         body = json.dumps(data, ensure_ascii=False).encode('utf-8')
@@ -1566,6 +1597,7 @@ class AITimeGuardApp(rumps.App):
             "立即提醒一次", callback=self.test_stand_up_reminder
         )
         self.stand_up_menu.add(self.stand_up_test_item)
+        self.stand_up_menu.add(rumps.MenuItem("我已经站立（记录一次）", callback=self.confirm_stand_up))
 
         self.stand_up_separator2 = rumps.separator
         self.stand_up_menu.add(self.stand_up_separator2)
@@ -1651,6 +1683,8 @@ class AITimeGuardApp(rumps.App):
             elif remaining_sec == 0 and self.stand_up_title_mode == "always":
                 # 已到点时只在"始终显示"模式下提醒
                 stand_up_prefix = "🧍⏰ "
+            if self.config.get("stand_up_pending", False):
+                stand_up_prefix = "🧍待站立 "
 
         if not self.is_monitoring:
             self.title = f"{stand_up_prefix}PAUSE {format_duration(self.today_seconds)}"
@@ -1826,7 +1860,7 @@ class AITimeGuardApp(rumps.App):
             except Exception:
                 pass
 
-    def show_modal_alert(self, title, message, ok="知道了"):
+    def show_modal_alert(self, title, message, ok="知道了", cancel=None):
         """弹出阻塞式模态框，直到用户点击按钮才关闭
 
         凡是"必须让用户看到"的提醒都要走这里，不要用 send_notification：
@@ -1836,7 +1870,10 @@ class AITimeGuardApp(rumps.App):
         模态框不依赖通知授权，是唯一可靠的用户可见提示。
         """
         try:
-            rumps.alert(title=title, message=message, ok=ok)
+            options = dict(title=title, message=message, ok=ok)
+            if cancel is not None:
+                options["cancel"] = cancel
+            return rumps.alert(**options)
         except Exception:
             # 极端情况下弹窗失败，退回系统通知，至少不静默失败
             self.send_notification(title, message)
@@ -1977,6 +2014,8 @@ class AITimeGuardApp(rumps.App):
         lines = []
         today = date.today()
         total = 0
+        stand_history = load_stand_up_history()
+        reminder_total = stood_total = 0
         for i in range(6, -1, -1):
             d = date.fromordinal(today.toordinal() - i)
             key = str(d)
@@ -1985,18 +2024,27 @@ class AITimeGuardApp(rumps.App):
                 secs = day_data
             else:
                 secs = day_data.get("total", 0)
+            if i == 0:
+                secs = self.today_seconds
             total += secs
+            stand_day = stand_history.get(key, {})
+            reminders = len(stand_day.get("reminders", []))
+            stood = len(stand_day.get("stood_up", []))
+            reminder_total += reminders
+            stood_total += stood
             day_label = "今天" if i == 0 else ("昨天" if i == 1 else d.strftime("%m/%d"))
             bar_len = min(30, int(secs / 60 / 10))  # 每10分钟一格
             bar = "█" * bar_len if bar_len > 0 else "·"
-            lines.append(f"{day_label:>6}  {format_duration(secs):>8}  {bar}")
+            lines.append(f"{day_label:>6}  {format_duration(secs):>8}  {bar}  提醒 {reminders} 次 · 站立 {stood} 次")
 
         avg_min = (total / 7) / 60
         lines.append(f"\n7日平均: {format_minutes(avg_min)}/天")
         lines.append(f"7日总计: {format_duration(total)}")
 
+        lines.append(f"7日站立: 提醒 {reminder_total} 次 · 已站立 {stood_total} 次")
+
         rumps.alert(
-            title="最近 7 天 AI 使用统计",
+            title="最近 7 天 AI 使用与站立统计",
             message="\n".join(lines),
             ok="好的",
         )
@@ -2129,8 +2177,8 @@ class AITimeGuardApp(rumps.App):
         self.stand_up_enabled = not self.stand_up_enabled
         sender.state = self.stand_up_enabled
         self.config["stand_up_enabled"] = self.stand_up_enabled
-        if self.stand_up_enabled:
-            # 启用时把上次提醒时间重置为现在，避免立即触发
+        if self.stand_up_enabled and self.stand_up_last_reminder_time <= 0:
+            # 仅首次启用建立起点；关闭再启用保留已累计时间
             self.stand_up_last_reminder_time = time.time()
             self.config["stand_up_last_reminder_time"] = self.stand_up_last_reminder_time
         save_config(self.config)
@@ -2148,9 +2196,7 @@ class AITimeGuardApp(rumps.App):
         new_interval = int(sender._mins)
         self.stand_up_interval_minutes = new_interval
         self.config["stand_up_interval_minutes"] = new_interval
-        # 调整间隔后把上次提醒时间重置为现在
-        self.stand_up_last_reminder_time = time.time()
-        self.config["stand_up_last_reminder_time"] = self.stand_up_last_reminder_time
+        # 调整间隔只改变目标时长，保留本轮已经累计的时间
         save_config(self.config)
         # 更新勾选状态
         for item in self.stand_up_interval_submenu.values():
@@ -2168,20 +2214,34 @@ class AITimeGuardApp(rumps.App):
     def fire_stand_up_reminder(self, force=False):
         """到点时由 on_tick 调用；force=True 表示手动测试"""
         now = time.time()
-        elapsed_min = (now - self.stand_up_last_reminder_time) / 60.0
-        if not force and elapsed_min < self.stand_up_interval_minutes:
+        pending = self.config.get("stand_up_pending", False)
+        interval = STAND_UP_RETRY_SECONDS if pending else self.stand_up_interval_minutes * 60
+        if not force and now - self.stand_up_last_reminder_time < interval:
             return
         self.stand_up_last_reminder_time = now
         self.config["stand_up_last_reminder_time"] = now
+        self.config["stand_up_pending"] = True
         save_config(self.config)
-        body = (
-            f"已经坐了约 {self.stand_up_interval_minutes} 分钟啦，\n"
-            "站起来活动肩颈、眺望远处，保护眼睛。"
-        )
-        self.show_modal_alert(
+        record_stand_up_event("reminders")
+        result = self.show_modal_alert(
             "🧍 站起来活动一下",
-            body,
+            "还没有记录站立，请站起来活动肩颈、眺望远处。\n"
+            "点击“我已经站立”记录并开始下一轮倒计时。\n"
+            "点击“知道了”将于 5 分钟后再次提醒。",
+            ok="我已经站立", cancel="知道了",
         )
+        if result == 1:
+            AITimeGuardApp.confirm_stand_up(self, None)
+        self.update_stand_up_menu_title()
+
+    def confirm_stand_up(self, _):
+        record_stand_up_event("stood_up")
+        self.config["stand_up_pending"] = False
+        self.stand_up_last_reminder_time = time.time()
+        self.config["stand_up_last_reminder_time"] = self.stand_up_last_reminder_time
+        save_config(self.config)
+        self.update_stand_up_menu_title()
+        self.update_title()
 
     def update_stand_up_menu_title(self):
         """根据开关、间隔、上次提醒时间刷新菜单标题（禁用时也显示间隔）"""
@@ -2193,6 +2253,9 @@ class AITimeGuardApp(rumps.App):
             return
         if not self.stand_up_enabled:
             self.stand_up_menu.title = f"🧍 站立提醒（{self.stand_up_interval_minutes} 分钟）"
+            return
+        if self.config.get("stand_up_pending", False):
+            self.stand_up_menu.title = "🧍 站立提醒（待站立 · 每 5 分钟提醒）"
             return
         elapsed = now - self.stand_up_last_reminder_time
         remaining_sec = max(
@@ -2246,6 +2309,7 @@ class AITimeGuardApp(rumps.App):
         today = date.today()
         days = []
         total_secs = 0
+        stand_history = load_stand_up_history()
         for i in range(6, -1, -1):
             d = date.fromordinal(today.toordinal() - i)
             d_str = str(d)
@@ -2266,6 +2330,12 @@ class AITimeGuardApp(rumps.App):
 
         limit_minutes = self.config.get("daily_limit_minutes", 180)
 
+        stand_counts = [(len(stand_history.get(str(d), {}).get("reminders", [])),
+                         len(stand_history.get(str(d), {}).get("stood_up", []))) for d, _ in days]
+        count_width = max(1, *(len(str(count)) for pair in stand_counts for count in pair))
+        reminder_total = sum(pair[0] for pair in stand_counts)
+        stood_total = sum(pair[1] for pair in stand_counts)
+
         # ── 表头 ──
         # 「近 7 天」用 labelColor，合计时长用语义色；两段独立着色，
         # 避免整行染色导致深色窗口下标题看不清。
@@ -2276,6 +2346,7 @@ class AITimeGuardApp(rumps.App):
                 (" · 合计 ", "gray", None),
                 (format_duration(total_secs),
                  _color_name_for_total_hours(total_secs / 3600), "digit"),
+                (f" · 提醒 {reminder_total} 次 · 站立 {stood_total} 次", "secondary", None),
             ],
         )
 
@@ -2340,6 +2411,11 @@ class AITimeGuardApp(rumps.App):
                     # 时长段用的是等宽数字字体，按字符数补即可（"—" 在该字体下也是一格），
                     # 不能用 _pad_display：它按东亚字宽算，会给破折号多补一格。
                     (dur_text.rjust(7), dur_color, "digit"),
+                    ("  提醒 ", "secondary", None),
+                    (str(stand_counts[i][0]).rjust(count_width), "label", "digit"),
+                    (" 次 · 站立 ", "secondary", None),
+                    (str(stand_counts[i][1]).rjust(count_width), "green" if stand_counts[i][1] else "secondary", "digit"),
+                    (" 次", "secondary", None),
                 ],
             )
 
