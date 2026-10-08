@@ -965,6 +965,47 @@ class AntigravityCliTests(unittest.TestCase):
         self.assertEqual(self.mod.infer_tool_name("Antigravity（终端前台）"), "Antigravity")
 
 
+class DesktopAppForegroundTests(unittest.TestCase):
+    """ZCode 与 MiniMax Code 只在自己处于前台时计时。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_module()
+
+    def _front(self, name, bundle_id):
+        return patch.object(
+            self.mod,
+            "get_frontmost_app",
+            return_value={"name": name, "bundle_id": bundle_id},
+        )
+
+    def test_zcode_foreground_by_app_name(self):
+        with self._front("ZCode", "dev.zcode.app"):
+            active, detail = self.mod.check_ai_active({})
+        self.assertTrue(active)
+        self.assertEqual(detail, "ZCode（前台）")
+        self.assertEqual(self.mod.infer_tool_name(detail), "ZCode")
+
+    def test_minimax_code_foreground_by_bundle_id(self):
+        with self._front("MiniMax Code", "com.minimax.agent.cn"):
+            active, detail = self.mod.check_ai_active({})
+        self.assertTrue(active)
+        self.assertEqual(detail, "MiniMax Code（前台）")
+        self.assertEqual(self.mod.infer_tool_name(detail), "MiniMax Code")
+
+    def test_minimax_code_matches_bundle_when_display_name_differs(self):
+        with self._front("MiniMax", "com.minimax.agent.cn"):
+            active, detail = self.mod.check_ai_active({})
+        self.assertTrue(active)
+        self.assertEqual(self.mod.infer_tool_name(detail), "MiniMax Code")
+
+    def test_resource_patterns_include_both_apps(self):
+        found = {name: patterns for name, patterns in self.mod.ai_tool_patterns}
+        self.assertIn("zcode", found["ZCode"])
+        self.assertIn("minimax code", found["MiniMax Code"])
+        self.assertIn("com.minimax.agent", found["MiniMax Code"])
+
+
 class StandUpStateRestoreTests(unittest.TestCase):
     """站立提醒的启动恢复：倒计时不能因为应用重启被清零
 
