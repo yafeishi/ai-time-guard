@@ -12,12 +12,16 @@ AI Time Guard - Mac 菜单栏应用
 - 使用数据持久化，每日自动重置
 """
 
+from event_reminders import EventReminders
+
 import rumps
 import psutil
 import json
 import os
 import time
+import math
 import subprocess
+import sys
 import threading
 import unicodedata
 import webbrowser
@@ -81,6 +85,8 @@ DEFAULT_CONFIG = {
     "stand_up_pending": False,
     "stand_up_pause_until": 0.0,
     "stand_up_pause_hours": 0,
+    "work_on_duty": True,
+    "event_schedule_enabled": False,
     "stand_up_title_mode": "final5",  # 菜单栏显示方式：final5 | always
     "countdown_duration_seconds": 180,# 菜单内倒计时时长（秒），记住用户上次选择
 }
@@ -119,6 +125,52 @@ def save_config(config):
     ensure_config_dir()
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
+
+
+# POST /api/config 数值项的合理范围（min, max）
+_CONFIG_NUMERIC_RANGES = {
+    "daily_limit_minutes": (10, 24 * 60),
+    "warning_at_percent": (1, 100),
+    "remind_interval_minutes": (1, 24 * 60),
+    "periodic_alert_minutes": (1, 24 * 60),
+    "check_interval_seconds": (2, 3600),
+    "stand_up_interval_minutes": (1, 24 * 60),
+    "countdown_duration_seconds": (60, 12 * 3600),
+}
+
+
+def sanitize_config_update(new_config):
+    """校验并过滤 POST 上来的配置：只接受 DEFAULT_CONFIG 里已知的 key，
+    类型必须与默认值一致，数值收敛到合理范围；未知 key 直接忽略。"""
+    if not isinstance(new_config, dict):
+        raise ValueError("config must be a JSON object")
+    cleaned = {}
+    for key, value in new_config.items():
+        if key not in DEFAULT_CONFIG:
+            continue
+        default = DEFAULT_CONFIG[key]
+        if isinstance(default, bool):
+            if not isinstance(value, bool):
+                raise ValueError(f"{key} must be a boolean")
+        elif key == "theme":
+            if value not in ("dark", "tencent-blue"):
+                raise ValueError("theme must be 'dark' or 'tencent-blue'")
+        elif key == "stand_up_title_mode":
+            if value not in ("final5", "always"):
+                raise ValueError("stand_up_title_mode must be 'final5' or 'always'")
+        elif isinstance(default, (int, float)):
+            # bool 是 int 的子类，必须先排除
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"{key} must be a number")
+            if key in _CONFIG_NUMERIC_RANGES:
+                lo, hi = _CONFIG_NUMERIC_RANGES[key]
+                value = min(max(value, lo), hi)
+            value = type(default)(value)
+        elif isinstance(default, str):
+            if not isinstance(value, str):
+                raise ValueError(f"{key} must be a string")
+        cleaned[key] = value
+    return cleaned
 
 
 def load_history():
@@ -876,6 +928,14 @@ class ReportHandler(SimpleHTTPRequestHandler):
     """处理报告页面和 API 请求"""
 
     def do_GET(self):
+        global _app_instance
+        if urlparse(self.path).path == '/api/events':
+            if _app_instance and hasattr(_app_instance, 'events'):
+                self.send_json_response({**_app_instance.events.snapshot(), 'on_duty': _app_instance.config.get('work_on_duty', True)})
+            else:
+                self.send_json_response({'error': '应用未运行'}, status=503)
+            return
+
         parsed = urlparse(self.path)
         path = parsed.path
         query = parse_qs(parsed.query)
@@ -892,6 +952,15 @@ class ReportHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(content)
             except Exception as e:
                 self.send_error(500, str(e))
+            return
+
+        if path == '/focus.html':
+            content = (APP_DIR / 'focus.html').read_bytes()
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Content-Length', str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
             return
 
         if path == '/share' or path == '/share.html':
@@ -958,7 +1027,6 @@ class ReportHandler(SimpleHTTPRequestHandler):
             return
 
         if path == '/api/config':
-            global _app_instance
             if _app_instance:
                 config = _app_instance.config.copy()
             else:
@@ -992,6 +1060,8 @@ class ReportHandler(SimpleHTTPRequestHandler):
             titles["countdown_duration_minutes"] = app.countdown_duration_minutes
             titles["countdown_state"] = app.countdown_state
             titles["menubar_title"] = app.title
+            titles["root_menu"] = [item.title for item in app.menu.values() if hasattr(item, "title")]
+            titles["event_rows"] = [item.title for item in getattr(app, "event_menu_items", {}).values()]
             self.send_json_response(titles)
             return
 
@@ -1069,7 +1139,6 @@ class ReportHandler(SimpleHTTPRequestHandler):
                 self.send_header('Content-Type', 'image/png')
                 self.send_header('Content-Length', str(len(screenshot)))
                 self.send_header('Content-Disposition', f'attachment; filename="ai-time-guard-{date.today()}.png"')
-                self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
                 self.wfile.write(screenshot)
                 return
@@ -1080,29 +1149,69 @@ class ReportHandler(SimpleHTTPRequestHandler):
 
         self.send_error(404)
 
-    def do_OPTIONS(self):
-        """处理 CORS 预检请求"""
-        self.send_response(204)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        self.send_header('Access-Control-Max-Age', '86400')
-        self.end_headers()
-
     def do_POST(self):
+        global _app_instance
+        if self.path == '/api/events':
+            try:
+                if not _app_instance or not hasattr(_app_instance, 'events'):
+                    raise ValueError('应用未运行')
+                size = int(self.headers.get('Content-Length', 0))
+                if not 0 < size <= 65536:
+                    raise ValueError('请求大小无效')
+                payload = json.loads(self.rfile.read(size))
+                action = payload['action']
+                if action in ('native_focus', 'focus') and _app_instance.config.get('event_schedule_enabled', False) and not _app_instance.events.sync_schedule(True):
+                    raise ValueError('活动已暂停，工作日早上 8 点自动恢复')
+                if action == 'native_focus':
+                    event_id = payload.get('id')
+                    if not any(e['id'] == event_id for e in _app_instance.events.snapshot()['events']):
+                        raise ValueError('事件不存在')
+                    event = next(e for e in _app_instance.events.snapshot()['events'] if e['id'] == event_id)
+                    if event['scope'] == 'work' and not _app_instance.config.get('work_on_duty', True):
+                        raise ValueError('请先上班，或将事件设置为全天')
+                    _app_instance.open_native_focus(event_id)
+                    self.send_json_response({'success': True})
+                    return
+                if action in ('focus', 'focus_heartbeat', 'focus_end'):
+                    event = next((e for e in _app_instance.events.snapshot()['events'] if e['id'] == payload.get('id')), None)
+                    if not event:
+                        raise ValueError('事件不存在')
+                    if action == 'focus':
+                        if event['scope'] == 'work' and not _app_instance.config.get('work_on_duty', True):
+                            raise ValueError('请先上班，或将事件设置为全天')
+                        if event['state'] == 'paused':
+                            _app_instance.events.command('resume', event['id'])
+                        elif event['state'] == 'idle':
+                            _app_instance.events.command('start', event['id'])
+                        _app_instance.focus_event_id = event['id']
+                        _app_instance.focus_until = time.time() + 15
+                    elif action == 'focus_heartbeat' and getattr(_app_instance, 'focus_event_id', None) == event['id']:
+                        _app_instance.focus_until = time.time() + 15
+                    elif action == 'focus_end' and getattr(_app_instance, 'focus_event_id', None) == event['id']:
+                        _app_instance.focus_until = 0
+                else:
+                    _app_instance.events.command(action, payload.get('id'), payload.get('config'))
+                if payload.get('id') == 'standing' and payload['action'] in ('complete', 'standing_finish'):
+                    record_stand_up_event('stood_up')
+                _app_instance.events_menu_dirty = True
+                self.send_json_response({'success': True})
+            except (ValueError, KeyError, TypeError) as exc:
+                self.send_json_response({'error': str(exc)}, status=400)
+            return
         if self.path == '/api/config':
             try:
                 content_length = int(self.headers.get('Content-Length', 0))
+                if content_length > 64 * 1024:
+                    raise ValueError("config body too large")
                 body = self.rfile.read(content_length).decode('utf-8')
-                new_config = json.loads(body)
-                
+                new_config = sanitize_config_update(json.loads(body))
+
                 # 加载现有配置并更新
                 config = load_config()
                 config.update(new_config)
                 save_config(config)
                 
                 # 更新运行中的配置
-                global _app_instance
                 if _app_instance:
                     _app_instance.apply_config(config)
                 
@@ -1114,20 +1223,24 @@ class ReportHandler(SimpleHTTPRequestHandler):
         self.send_error(404)
 
     def build_today(self):
-        """构建今日数据摘要（轻量级端点）"""
+        """构建今日数据摘要（轻量级端点，供报表页 30 秒轮询使用）"""
         global _app_instance
         config = _app_instance.config.copy() if _app_instance else load_config()
         today_key = str(date.today())
         today_seconds = 0
         today_tools = {}
         is_active = False
+        is_monitoring = True
         detail = ""
+        resources = []
 
         if _app_instance:
             today_seconds = round(_app_instance.today_seconds, 1)
             today_tools = {k: round(v, 1) for k, v in _app_instance.today_tools.items()}
             is_active = _app_instance.is_ai_active
+            is_monitoring = _app_instance.is_monitoring
             detail = _app_instance.active_detail
+            resources = get_ai_tool_resource_usage()
         else:
             history = load_history()
             day_data = history.get(today_key, {"total": 0, "tools": {}})
@@ -1145,7 +1258,9 @@ class ReportHandler(SimpleHTTPRequestHandler):
             "tools": today_tools,
             "limit_minutes": config.get("daily_limit_minutes", 180),
             "is_active": is_active,
+            "is_monitoring": is_monitoring,
             "detail": detail,
+            "resources": resources,
         }
 
     def build_daily(self, date_str):
@@ -1447,7 +1562,6 @@ class ReportHandler(SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Content-Length', str(len(body)))
-        self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         self.wfile.write(body)
 
@@ -1590,6 +1704,7 @@ class AITimeGuardApp(rumps.App):
         self.countdown_menu.add(self.countdown_duration_submenu)
 
         # ── 新增：站立提醒 ──
+        self.work_shift_item = rumps.MenuItem("下班", callback=self.toggle_work_shift)
         self.stand_up_menu = rumps.MenuItem("🧍 站立提醒")
         self.stand_up_pause_menu = rumps.MenuItem("暂停站立提醒")
         self.stand_up_toggle_item = rumps.MenuItem("启用站立提醒", callback=self.toggle_stand_up)
@@ -1639,35 +1754,170 @@ class AITimeGuardApp(rumps.App):
 
         self.quit_item = rumps.MenuItem("退出", callback=self.quit_app)
 
-        self.menu = [
-            self.status_item,
-            self.today_item,
-            self.limit_item,
-            self.stats_header_item,
-            *self.stats_day_items,
-            self.separator1,
-            self.pause_item,
-            self.separator2,
-            self.limit_menu,
-            self.periodic_menu,
-            self.periodic_enabled_item,
-            self.strict_item,
-            self.reset_item,
-            self.separator3,
-            self.history_item,
-            self.report_item,
-            self.separator4,
-            self.countdown_menu,
-            self.stand_up_menu,
-            self.separator5,
-            self.quit_item,
-        ]
+        self.events = EventReminders(CONFIG_DIR / 'events.json', self.config)
+        self.events_menu = rumps.MenuItem("⏱ 事件提醒")
+        self.events_menu_dirty = True
+        self.refresh_event_menu()
+        self.events_timer = rumps.Timer(self.tick_events, 1)
+        self.events_timer.start()
+
+        self.ai_menu = rumps.MenuItem("AI 使用统计与设置")
+        for item in [self.status_item, self.today_item, self.limit_item, self.stats_header_item,
+                     *self.stats_day_items, rumps.separator, self.pause_item, self.limit_menu,
+                     self.periodic_menu, self.periodic_enabled_item, self.strict_item,
+                     self.reset_item, self.history_item]:
+            self.ai_menu.add(item)
+        self.event_section_item = rumps.MenuItem("⏱ 事件提醒")
+        self.event_manage_item = rumps.MenuItem("设置…", callback=self.open_report)
+        self.menu = [*self.event_root_items, rumps.separator, self.work_shift_item,
+                     self.event_manage_item, self.quit_item]
+        self.event_root_installed = True
 
         self.update_title()
 
         # 启动定时检测
         self.timer = rumps.Timer(self.on_tick, self.config["check_interval_seconds"])
         self.timer.start()
+
+    def perform_event_action(self, event_id, action):
+        try:
+            self.events.command(action, event_id)
+            if event_id == 'standing' and action == 'complete':
+                record_stand_up_event('stood_up')
+        except ValueError as exc:
+            self.show_modal_alert('事件提醒', str(exc))
+
+    def open_native_focus(self, event_id):
+        if self.config.get('event_schedule_enabled', False) and not self.events.sync_schedule(True):
+            self.show_modal_alert('活动已暂停', '工作日早上 8 点自动恢复，可点击上班临时恢复。')
+            return
+        event = next((e for e in self.events.snapshot()['events'] if e['id'] == event_id), None)
+        if not event:
+            return
+        if event['scope'] == 'work' and not self.config.get('work_on_duty', True):
+            self.show_modal_alert('已下班', '请先上班，或将事件设置为全天。')
+            return
+        existing = getattr(self, 'native_focus_process', None)
+        if existing and existing.poll() is None:
+            return
+        arguments = [sys.executable, str(APP_DIR / 'native_focus.py'), event_id]
+        if event_id == 'standing':
+            arguments.append('--standing-minute')
+        self.native_focus_process = subprocess.Popen(arguments)
+
+    def primary_event_action(self, event_id):
+        event = next((e for e in self.events.snapshot()['events'] if e['id'] == event_id), None)
+        if not event:
+            return
+        if event['scope'] == 'work' and not self.config.get('work_on_duty', True):
+            self.show_modal_alert('已下班', '请先点击上班，再开始工作期间的事件。')
+            return
+        if event_id == 'standing' or event['mode'] == 'once':
+            self.open_native_focus(event_id)
+        elif event['pending']:
+            result = self.show_modal_alert(event['name'], '现在方便完成吗？', ok='已完成', cancel='稍后提醒')
+            self.perform_event_action(event_id, 'complete' if result == 1 else 'snooze')
+        elif event['state'] == 'idle':
+            self.perform_event_action(event_id, 'start')
+
+    def refresh_event_menu(self):
+        installed = getattr(self, 'event_root_installed', False)
+        if installed:
+            old_items = {id(item) for item in self.event_root_items}
+            for key, item in list(self.menu.items()):
+                if id(item) in old_items:
+                    del self.menu[key]
+        self.event_root_items = []
+        self.event_menu_items = {}
+        self.event_more_items = {}
+        for event in self.events.snapshot()['events']:
+            event_id = event['id']
+            def primary(_, eid=event_id):
+                self.primary_event_action(eid)
+            item = rumps.MenuItem('event-' + event_id, callback=primary)
+            self.event_menu_items[event_id] = item
+            self.event_root_items.append(item)
+        if installed:
+            anchor = next(key for key, item in self.menu.items() if item is self.event_manage_item)
+            for item in self.event_root_items:
+                self.menu.insert_before(anchor, item)
+        self.events_menu_dirty = False
+
+    def tick_events(self, _):
+        if self.config.get('event_schedule_enabled', False):
+            active = self.events.sync_schedule(True)
+            if active != self.config.get('work_on_duty', True):
+                self.config['work_on_duty'] = active
+                self.config['stand_up_enabled'] = active
+                self.stand_up_enabled = active
+                save_config(self.config)
+                self.update_stand_up_menu_title()
+        request = getattr(self, 'native_focus_request', None)
+        if request:
+            self.native_focus_request = None
+            self.open_native_focus(request)
+        if self.events_menu_dirty:
+            self.refresh_event_menu()
+        on_duty = self.config.get('work_on_duty', True)
+        focusing = time.time() < getattr(self, "focus_until", 0)
+        due = [] if focusing else self.events.tick(on_duty)
+        modal = []
+        for event in due:
+            if event['id'] == 'standing':
+                record_stand_up_event('reminders')
+            if event['notification'] == 'notification':
+                self.send_notification('事件提醒', event['name'] + '：到时间了，请在菜单里记录完成。')
+            else:
+                modal.append(event)
+        if modal:
+            names = '、'.join(event['name'] for event in modal)
+            standing_minute = len(modal) == 1 and modal[0]['id'] == 'standing'
+            result = self.show_modal_alert('⏱ ' + names, ('请站起来活动至少 1 分钟。点击后开始倒计时，结束后记录站立。' if standing_minute else '以下事件已到时间：' + names + '\n完成后请确认，稍后处理会保留待完成状态。'),
+                                           ok='站立 1 分钟' if standing_minute else ('开始站立并确认其他完成' if any(e['id'] == 'standing' for e in modal) else ('全部已完成' if len(modal) > 1 else '已完成')), cancel='稍后提醒')
+            if result == 1:
+                for event in modal:
+                    if event['id'] == 'standing':
+                        self.open_native_focus('standing')
+                        continue
+                    current = next((e for e in self.events.snapshot()['events'] if e['id'] == event['id']), None)
+                    if not current or current['state'] != 'waiting' or not current['pending']:
+                        continue
+                    self.events.command('complete', event['id'])
+                    if event['id'] == 'standing':
+                        record_stand_up_event('stood_up')
+        for event in self.events.snapshot()['events']:
+            item = self.event_menu_items.get(event['id'])
+            if item is None:
+                continue
+            if event['state'] == 'scheduled_pause':
+                status = '休息时段 · 已暂停'
+            elif event['scope'] == 'work' and not on_duty:
+                status = '已下班'
+            elif event['state'] == 'paused':
+                status = '暂停中 · ' + format_duration(event.get('remaining', 0))
+            elif event['state'] == 'snoozed':
+                status = '稍后提醒 · ' + format_duration(max(0, event['due'] - time.time()))
+            elif event['pending']:
+                status = '待完成'
+            elif event['due'] is not None:
+                status = '剩余 ' + format_duration(max(0, event['due'] - time.time()))
+            else:
+                status = '未开始'
+            if event['mode'] == 'once':
+                minutes = event['seconds'] / 60
+                duration = f"{minutes:g} 分钟" if minutes >= 1 else f"{event['seconds']:g} 秒"
+                item.title = f"开始 {duration}专注" if event['state'] == 'idle' else f"专注 · {status}"
+            else:
+                item.title = event['name'] + ' · ' + status + (' · 站立 1 分钟' if event['id'] == 'standing' else '')
+            enabled = event['id'] == 'standing' or event['mode'] == 'once' or event['pending'] or event['state'] == 'idle'
+            if hasattr(item, 'set_callback'):
+                if enabled:
+                    def primary(_, eid=event['id']):
+                        self.primary_event_action(eid)
+                    item.set_callback(primary)
+                else:
+                    item.set_callback(None)
+        self.update_title()
 
     def update_title(self):
         """更新菜单栏显示的标题
@@ -1686,7 +1936,7 @@ class AITimeGuardApp(rumps.App):
 
         # 站立提醒倒计时作为前缀（启用时按 title_mode 规则显示，倒计时不运行时才出现）
         stand_up_prefix = ""
-        if self.stand_up_enabled and self.stand_up_last_reminder_time > 0:
+        if not hasattr(self, "events") and self.stand_up_enabled and self.stand_up_last_reminder_time > 0:
             remaining_sec = max(
                 0,
                 int(self.stand_up_interval_minutes * 60
@@ -1705,6 +1955,17 @@ class AITimeGuardApp(rumps.App):
                 stand_up_prefix = "🧍⏰ "
             if self.config.get("stand_up_pending", False):
                 stand_up_prefix = "🧍待站立 "
+
+        if hasattr(self, "events"):
+            standing = next((event for event in self.events.snapshot()['events'] if event['id'] == 'standing'), None)
+            if standing and (standing['scope'] == 'all' or self.config.get('work_on_duty', True)):
+                if standing['state'] in ('running', 'waiting'):
+                    if standing['pending']:
+                        stand_up_prefix = "🧍待站立 "
+                    elif standing.get('due') is not None:
+                        remaining = max(0, math.ceil(standing['due'] - time.time()))
+                        if 0 < remaining <= 300 or self.stand_up_title_mode == 'always':
+                            stand_up_prefix = f"🧍{remaining//60:02d}:{remaining%60:02d} " if remaining else "🧍⏰ "
 
         if not self.is_monitoring:
             self.title = f"{stand_up_prefix}PAUSE {format_duration(self.today_seconds)}"
@@ -1761,12 +2022,7 @@ class AITimeGuardApp(rumps.App):
             self.warning_sent = False
             self.limit_warning_sent = False
 
-        # 到期恢复先发一次提醒，避免同一个 tick 重复弹窗。
-        resumed = AITimeGuardApp.resume_expired_stand_up_pause(self)
-        # 站立提醒独立于 AI 监控：即使监控暂停也要到点提醒
-        if self.stand_up_enabled and not resumed:
-            self.fire_stand_up_reminder()
-
+        # 事件提醒由独立的一秒定时器处理。
         # 刷新菜单栏标题（站立倒计时前缀）和下拉里的近 7 天可视化
         self.update_title()
         self.update_stand_up_menu_title()
@@ -1891,6 +2147,8 @@ class AITimeGuardApp(rumps.App):
         进了通知中心（deliveredNotifications 里查得到），但屏幕上不会弹出来。
         模态框不依赖通知授权，是唯一可靠的用户可见提示。
         """
+        if time.time() < getattr(self, "focus_until", 0):
+            return None
         try:
             options = dict(title=title, message=message, ok=ok)
             if cancel is not None:
@@ -2182,6 +2440,8 @@ class AITimeGuardApp(rumps.App):
         """
         self.stand_up_interval_minutes = int(self.config.get("stand_up_interval_minutes", 45))
         self.stand_up_enabled = bool(self.config.get("stand_up_enabled", False))
+        if not self.config.get("work_on_duty", True):
+            self.stand_up_enabled = False
         saved_last = float(self.config.get("stand_up_last_reminder_time", 0) or 0)
         if saved_last > 0:
             self.stand_up_last_reminder_time = saved_last
@@ -2194,8 +2454,32 @@ class AITimeGuardApp(rumps.App):
         if self.stand_up_title_mode not in ("final5", "always"):
             self.stand_up_title_mode = "final5"
 
+    def toggle_work_shift(self, _):
+        on_duty = not self.config.get("work_on_duty", True)
+        self.config["work_on_duty"] = on_duty
+        self.config["stand_up_pause_until"] = 0.0
+        self.config["stand_up_pause_hours"] = 0
+        self.config["stand_up_pending"] = False
+        self.config["stand_up_enabled"] = on_duty
+        self.stand_up_enabled = on_duty
+        if on_duty:
+            # 明确上班开始新时段；普通重启不会改变计时起点。
+            self.stand_up_last_reminder_time = time.time()
+            self.config["stand_up_last_reminder_time"] = self.stand_up_last_reminder_time
+        save_config(self.config)
+        if hasattr(self, "events"):
+            if self.config.get('event_schedule_enabled', False):
+                self.events.override_schedule(on_duty)
+            else:
+                self.events.shift(on_duty)
+            self.events_menu_dirty = True
+        self.update_stand_up_menu_title()
+        self.update_title()
+
     def toggle_stand_up(self, sender):
         """切换站立提醒开关"""
+        if not self.config.get("work_on_duty", True):
+            return
         if self.stand_up_enabled:
             AITimeGuardApp.pause_stand_up(self, None)
             sender.state = False
@@ -2215,23 +2499,31 @@ class AITimeGuardApp(rumps.App):
         AITimeGuardApp.update_stand_up_pause_controls(self)
 
     def update_stand_up_pause_controls(self):
+        on_duty = self.config.get("work_on_duty", True)
+        if hasattr(self, "work_shift_item"):
+            self.work_shift_item.title = "下班" if on_duty else "上班"
         paused = not self.stand_up_enabled and bool(self.config.get("stand_up_pause_until", 0))
         self.stand_up_toggle_item.state = False
         self.stand_up_toggle_item.title = (
+            "已下班，请先点击上班" if not on_duty else
             "立即恢复站立提醒" if paused else
             "站立提醒已启用" if self.stand_up_enabled else "启用站立提醒"
         )
         # 状态文字不可点击；恢复和首次启用是动作，均不使用勾选。
         if hasattr(self.stand_up_toggle_item, "set_callback"):
-            self.stand_up_toggle_item.set_callback(None if self.stand_up_enabled else self.toggle_stand_up)
+            self.stand_up_toggle_item.set_callback(None if self.stand_up_enabled or not on_duty else self.toggle_stand_up)
         if hasattr(self, "stand_up_pause_menu"):
             self.stand_up_pause_menu.state = paused
             self.stand_up_pause_menu.title = "暂停站立提醒（暂停中）" if paused else "暂停站立提醒"
         for item in getattr(self, "stand_up_pause_items", []):
             item.state = paused and item._hours == self.config.get("stand_up_pause_hours", 0)
+            if hasattr(item, "set_callback"):
+                item.set_callback(self.pause_stand_up if on_duty else None)
 
     def pause_stand_up(self, sender):
         """限时静音提醒，保留计时起点和待站立状态。"""
+        if not self.config.get("work_on_duty", True):
+            return
         hours = max(1, min(2, int(getattr(sender, "_hours", 2))))
         self.config["stand_up_pause_hours"] = hours
         self.config["stand_up_pause_until"] = time.time() + hours * 3600
@@ -2244,6 +2536,8 @@ class AITimeGuardApp(rumps.App):
         self.update_title()
 
     def resume_expired_stand_up_pause(self):
+        if not self.config.get("work_on_duty", True):
+            return False
         until = self.config.get("stand_up_pause_until", 0)
         if not until or time.time() < until:
             return False
@@ -2277,6 +2571,8 @@ class AITimeGuardApp(rumps.App):
 
     def fire_stand_up_reminder(self, force=False, resumed=False):
         """到点时由 on_tick 调用；force=True 表示手动测试"""
+        if not self.config.get("work_on_duty", True):
+            return
         now = time.time()
         pending = self.config.get("stand_up_pending", False)
         interval = STAND_UP_RETRY_SECONDS if pending else self.stand_up_interval_minutes * 60
@@ -2311,6 +2607,9 @@ class AITimeGuardApp(rumps.App):
         """根据开关、间隔、上次提醒时间刷新菜单标题（禁用时也显示间隔）"""
         now = time.time()
         AITimeGuardApp.update_stand_up_pause_controls(self)
+        if not self.config.get("work_on_duty", True):
+            self.stand_up_menu.title = "🧍 站立提醒（已下班）"
+            return
         feedback_text = getattr(self, "_stand_up_feedback_text", "")
         feedback_expire = getattr(self, "_stand_up_feedback_expire", 0)
         if feedback_text and feedback_expire > now:
@@ -2491,6 +2790,8 @@ class AITimeGuardApp(rumps.App):
             )
 
     def quit_app(self, _):
+        if hasattr(self, "events_timer"):
+            self.events_timer.stop()
         # 保存数据
         self.history[self.today_key] = {"total": self.today_seconds, "tools": self.today_tools}
         save_history(self.history)

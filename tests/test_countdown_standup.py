@@ -1177,3 +1177,109 @@ class StandUpPauseMenuTests(unittest.TestCase):
         mod.AITimeGuardApp.toggle_stand_up(app, app.stand_up_toggle_item)
         self.assertFalse(app.stand_up_pause_menu.state)
         self.assertEqual([i.state for i in app.stand_up_pause_items], [False, False])
+
+
+class WorkShiftTests(unittest.TestCase):
+    def setUp(self):
+        self.mod = _load_module()
+        self.app = _AppStub(self.mod)
+        self.app.work_shift_item = types.SimpleNamespace(title="")
+        self.app.toggle_work_shift = types.MethodType(self.mod.AITimeGuardApp.toggle_work_shift, self.app)
+
+    def test_off_duty_keeps_ai_monitoring_and_disables_auto_resume(self):
+        self.app.config["stand_up_pause_until"] = 12345
+        original = self.app.stand_up_last_reminder_time
+        self.app.toggle_work_shift(None)
+        self.assertFalse(self.app.config["work_on_duty"])
+        self.assertTrue(self.app.is_monitoring)
+        self.assertFalse(self.app.stand_up_enabled)
+        self.assertEqual(self.app.config["stand_up_pause_until"], 0)
+        self.assertEqual(self.app.stand_up_last_reminder_time, original)
+        self.assertIn("已下班", self.app.stand_up_menu.title)
+        self.assertFalse(self.mod.AITimeGuardApp.resume_expired_stand_up_pause(self.app))
+        self.mod.AITimeGuardApp.fire_stand_up_reminder(self.app, force=True)
+        self.assertEqual(self.app.alerts, [])
+
+    def test_on_duty_starts_new_round_without_recording_standing(self):
+        self.app.config["work_on_duty"] = False
+        with patch.object(self.mod.time, "time", return_value=20000):
+            self.app.toggle_work_shift(None)
+        self.assertTrue(self.app.stand_up_enabled)
+        self.assertEqual(self.app.config["stand_up_last_reminder_time"], 20000)
+        self.assertFalse(self.app.config["stand_up_pending"])
+
+    def test_restart_preserves_off_duty(self):
+        self.app.config["work_on_duty"] = False
+        self.app.config["stand_up_enabled"] = True
+        self.app.config["stand_up_last_reminder_time"] = 12345
+        self.mod.AITimeGuardApp._restore_stand_up_state(self.app)
+        self.assertFalse(self.app.stand_up_enabled)
+        self.assertEqual(self.app.stand_up_last_reminder_time, 12345)
+
+
+class EventQuickActionTests(unittest.TestCase):
+    def setUp(self):
+        self.mod = _load_module()
+        self.app = _AppStub(self.mod)
+        self.event = dict(id='test', name='test', state='idle', mode='once', scope='all', pending=False)
+        self.app.events = types.SimpleNamespace(snapshot=lambda: {'events': [self.event]})
+        self.app.perform_event_action = unittest.mock.Mock()
+        self.app.open_native_focus = unittest.mock.Mock()
+
+    def test_single_event_opens_focus_instead_of_showing_actions(self):
+        self.mod.AITimeGuardApp.primary_event_action(self.app, 'test')
+        self.app.open_native_focus.assert_called_once_with('test')
+        self.event['state'] = 'paused'
+        self.mod.AITimeGuardApp.primary_event_action(self.app, 'test')
+        self.assertEqual(self.app.open_native_focus.call_count, 2)
+        self.app.perform_event_action.assert_not_called()
+
+    def test_repeating_event_confirms_completion_and_running_row_is_status(self):
+        self.event.update(state='waiting', pending=True, mode='completion')
+        self.mod.AITimeGuardApp.primary_event_action(self.app, 'test')
+        self.app.perform_event_action.assert_called_with('test', 'complete')
+        self.event.update(state='running', pending=False)
+        self.app.perform_event_action.reset_mock()
+        self.mod.AITimeGuardApp.primary_event_action(self.app, 'test')
+        self.app.perform_event_action.assert_not_called()
+
+    def test_off_duty_work_event_does_not_start(self):
+        self.event['scope'] = 'work'
+        self.app.config['work_on_duty'] = False
+        self.mod.AITimeGuardApp.primary_event_action(self.app, 'test')
+        self.app.perform_event_action.assert_not_called()
+        self.assertEqual(self.app.alerts[0]['title'], '已下班')
+
+
+class UnifiedStandingTitleTests(unittest.TestCase):
+    def setUp(self):
+        self.mod = _load_module()
+        self.app = _AppStub(self.mod)
+        self.app.stand_up_title_mode = 'final5'
+        self.event = dict(id='standing',scope='work',state='running',pending=False,due=1300)
+        self.app.events = types.SimpleNamespace(snapshot=lambda: {'events':[self.event]})
+
+    def test_last_five_minutes_uses_live_event_deadline(self):
+        with patch.object(self.mod.time,'time',return_value=1000):
+            self.app.update_title()
+        self.assertTrue(self.app.title.startswith('🧍05:00 '))
+        with patch.object(self.mod.time,'time',return_value=1001):
+            self.app.update_title()
+        self.assertTrue(self.app.title.startswith('🧍04:59 '))
+        self.event['due']=1400
+        with patch.object(self.mod.time,'time',return_value=1000):
+            self.app.update_title()
+        self.assertNotIn('🧍',self.app.title)
+
+    def test_pause_off_duty_and_pending_states(self):
+        self.event.update(state='waiting',pending=True)
+        self.app.update_title()
+        self.assertIn('待站立',self.app.title)
+        for state in ('paused','snoozed','idle'):
+            self.event['state']=state
+            self.app.update_title()
+            self.assertNotIn('🧍',self.app.title)
+        self.event['state']='waiting'
+        self.app.config['work_on_duty']=False
+        self.app.update_title()
+        self.assertNotIn('🧍',self.app.title)

@@ -361,12 +361,22 @@
     color: var(--text3);
     margin-top: 8px;
   }
+  .bar-plot {
+    position: relative;
+    width: 100%;
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
   .bar-limit-line {
     position: absolute;
-    left: -6px;
-    right: -6px;
+    left: 0;
+    right: 0;
     border-top: 2px dashed var(--red);
     opacity: 0.6;
+    pointer-events: none;
   }
 
   /* 饼图/统计列表 */
@@ -975,6 +985,56 @@
     .settings-row { flex-direction: column; align-items: flex-start; gap: 8px; }
     .settings-row-control { margin-left: 0; }
   }
+  .module-nav { display:flex; gap:12px; margin-bottom:24px; flex-wrap:wrap; }
+  .module-nav a { color:var(--text); text-decoration:none; background:var(--card); border:1px solid var(--border); padding:12px 20px; border-radius:12px; }
+  .module-nav a:hover { border-color:var(--accent); color:var(--accent); }
+  .page-module { padding:24px; border:1px solid var(--border); border-radius:20px; margin-bottom:36px; scroll-margin-top:24px; }
+  .module-heading { display:flex; align-items:center; gap:16px; margin-bottom:24px; }
+  .module-icon { display:grid; place-items:center; width:52px; height:52px; border-radius:14px; background:var(--accent-light); color:var(--accent); font-size:24px; flex-shrink:0; }
+  .module-heading h2 { font-size:25px; margin-bottom:6px; }
+  .module-heading p { color:var(--text2); font-size:14px; line-height:1.6; }
+  @media(max-width:600px) { .page-module { padding:14px; } .module-heading h2 {font-size:21px;} }
+/* A quiet workspace: one primary action, details on demand. */
+.chart-card{min-width:0}.chart-title-row{flex-wrap:wrap;gap:12px}.range-switch{flex-wrap:wrap}.header::before{display:none}.header-inner{max-width:1280px}.header-top{flex-wrap:wrap;gap:14px}.header-right{flex-wrap:wrap;gap:10px;flex-shrink:1}.header-right button{background:var(--card)!important;color:var(--text)!important;border:1px solid var(--border)!important;font-weight:500!important}.header-right button:hover{background:var(--accent-light)!important}.status-badge{box-shadow:none}
+
+.header {background:var(--card);padding:22px 0;border-bottom:1px solid var(--border);}
+.header h1,.header h1 span{color:var(--text)}
+.header-bottom{display:none}.header-actions button{box-shadow:none}
+.container{max-width:1280px;display:grid;grid-template-columns:180px minmax(0,1fr);gap:24px;padding:28px 24px 48px;}
+.module-nav{grid-column:1;grid-row:1 / span 2;position:sticky;top:24px;align-self:start;flex-direction:column;gap:6px;}
+.module-nav a{background:transparent;border:0;border-radius:9px;font-size:14px;padding:13px 16px;color:var(--text2);}
+.module-nav a.active{color:var(--accent);background:var(--accent-light);font-weight:600;}
+.page-module{grid-column:2;min-width:0;border:0;padding:0;margin-bottom:40px;}
+.module-heading{padding-bottom:22px;border-bottom:1px solid var(--border);margin-bottom:24px;}.module-heading h2{font-size:27px;font-weight:650;letter-spacing:-.5px;}.module-heading p{color:var(--text3);}.module-icon{display:none}
+.event-workspace{margin-bottom:24px;}.workspace-toolbar{display:flex;justify-content:space-between;align-items:center;gap:16px;margin:0 0 20px;}.workspace-toolbar h3{font-size:17px;font-weight:600;}.workspace-toolbar p{font-size:13px;color:var(--text3);margin-top:6px;}
+.event-button{font:inherit;font-size:13px;font-weight:500;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:9px;padding:10px 16px;cursor:pointer;white-space:nowrap;transition:background .15s,transform .15s;}.event-button:hover{background:var(--accent-light);}.event-button.primary{background:var(--accent);color:#fff;border-color:var(--accent);}.event-button.primary:hover{filter:brightness(1.08)}.event-button:disabled{opacity:.5;cursor:wait}.event-button:focus-visible, .event-icon-button:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.event-overview{font-size:13px;color:var(--text3);margin-bottom:18px;}.event-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(255px,1fr));gap:16px;}
+.event-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:22px;min-width:0;display:flex;flex-direction:column;}.event-card-top{display:flex;align-items:center;justify-content:space-between;gap:12px;}.event-card h4{font-size:16px;font-weight:600;overflow-wrap:anywhere}.event-badge{font-size:11px;color:var(--text3);border:1px solid var(--border);border-radius:6px;padding:4px 8px;white-space:nowrap;}.event-badge.running{color:var(--green);}.event-badge.pending{color:var(--orange);}
+.event-meta{font-size:12px;color:var(--text3);margin-top:9px;}.event-clock{font-size:40px;letter-spacing:-1.5px;font-weight:550;font-variant-numeric:tabular-nums;margin:24px 0 3px;line-height:1.2;}.event-clock.caption{font-size:28px;letter-spacing:-.5px;}.event-clock-label{font-size:12px;color:var(--text3);min-height:18px;}
+.event-metrics{display:grid;grid-template-columns:repeat(3,1fr);padding:18px 0;margin-top:15px;border-top:1px solid var(--border);gap:8px}.event-metrics span{font-size:11px;color:var(--text3);}.event-metrics strong{display:block;font-size:20px;color:var(--text);margin-bottom:4px;font-weight:550;font-variant-numeric:tabular-nums;}
+.event-card-actions{display:flex;gap:8px;align-items:center;position:relative;margin-top:auto;}.event-card-actions>.primary{flex:1;}.event-icon-button{border:0;background:transparent;color:var(--text2);font-size:24px;cursor:pointer;padding:4px 8px;border-radius:8px}.event-icon-button:hover{background:var(--accent-light)}
+.event-more{position:relative}.event-more>summary{list-style:none;border:1px solid var(--border);border-radius:9px;padding:9px 12px;cursor:pointer;color:var(--text2);font-size:13px}.event-more>summary::-webkit-details-marker{display:none}.event-more[open]>summary{background:var(--accent-light)}.event-more-menu{position:absolute;right:0;top:43px;z-index:20;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:6px;box-shadow:0 10px 30px var(--shadow);min-width:170px;}.event-more-menu button{display:block;width:100%;text-align:left;border:0;background:transparent;color:var(--text);padding:10px;border-radius:6px;cursor:pointer;font:inherit;font-size:13px}.event-more-menu button:hover{background:var(--accent-light)}.event-more-menu .danger{color:var(--red)}
+.event-clock{height:48px;display:flex;align-items:center}.event-card-top{min-height:27px}.event-clock-label{min-height:34px}.toolbar-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.completion-filters{display:grid;grid-template-columns:1fr 1fr;gap:16px}.completion-filters label{font-size:12px;color:var(--text2)}.completion-filters input,.completion-filters select{display:block;width:100%;min-width:0;margin-top:8px;padding:10px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;font:inherit}.completion-filters input:focus,.completion-filters select:focus{outline:2px solid var(--accent)}#completionDialog .history-table td:nth-child(2),#completionDialog .history-table th:nth-child(2){text-align:left}#completionDialog .history-table td:first-child{font-variant-numeric:tabular-nums;white-space:nowrap}@media(max-width:520px){.workspace-toolbar{align-items:flex-start}.completion-filters{grid-template-columns:1fr}}
+.event-history-link{border:0;border-top:1px solid var(--border);border-radius:0;background:transparent;color:var(--text2);padding:16px 0 0;margin-top:18px;text-align:left;font:inherit;font-size:12px;cursor:pointer}.event-history-link:hover{color:var(--accent)}.event-history-link:focus-visible{outline:2px solid var(--accent);outline-offset:4px}.history-dialog{width:min(560px,calc(100vw - 32px))}.history-dialog .history-table-wrap{margin-top:18px}.history-dialog .editor-heading{margin-bottom:8px}
+.event-history{border-top:1px solid var(--border);margin-top:18px;padding-top:14px;font-size:12px;color:var(--text2)}.event-history summary{cursor:pointer}.event-history table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;margin-top:12px}.event-history th,.event-history td{padding:8px 2px;text-align:right;font-weight:400;font-size:11px}.event-history th{color:var(--text3)}.event-history th:first-child,.event-history td:first-child{text-align:left}.event-empty{border:1px dashed var(--border);border-radius:16px;padding:40px;text-align:center;color:var(--text2);}
+.event-dialog{width:min(560px,calc(100vw - 32px));max-height:90vh;overflow:auto;margin:auto;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:20px;padding:28px;box-shadow:0 24px 100px #0005;}.event-dialog::backdrop{background:#05091488;backdrop-filter:blur(4px)}.editor-heading{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}.editor-heading h3{font-size:24px;margin-top:5px}.editor-eyebrow{font-size:11px;color:var(--text3);letter-spacing:1px}
+#eventForm label,#eventForm legend{font-size:13px;font-weight:500;margin-bottom:8px;display:block}#eventForm input:not([type=radio]),#eventForm select{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:9px;padding:12px;font:inherit;font-size:14px;outline:none}#eventForm input:focus,#eventForm select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light)}.editor-fields{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px;}.input-unit{position:relative}.input-unit input{padding-right:56px!important}.input-unit span{position:absolute;right:12px;top:13px;color:var(--text3);font-size:13px}.editor-help{font-size:12px;color:var(--text3);line-height:1.7;margin-top:10px}.scope-field{border:0;margin-top:22px;display:flex;gap:12px}.scope-field label{display:flex!important;align-items:center;gap:10px;flex:1;border:1px solid var(--border);border-radius:10px;padding:12px;cursor:pointer}.scope-field label:has(input:checked){border-color:var(--accent);background:var(--accent-light)}.scope-field input{accent-color:var(--accent)}.scope-field small{display:block;color:var(--text3);font-size:11px;margin-top:5px;font-weight:400}.editor-advanced{border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:16px 0;margin-top:16px}.editor-advanced summary{font-size:13px;cursor:pointer}.editor-advanced[open]{padding-bottom:20px}.editor-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:22px}.event-feedback{font-size:13px;color:var(--orange);line-height:1.6}.event-feedback:empty{display:none}.event-feedback:not(:empty){margin:14px 0}
+.historical-events{margin-top:24px;border-top:1px solid var(--border);padding:20px 0;color:var(--text2);font-size:13px}.historical-events>summary{cursor:pointer;font-weight:500}.history-toolbar{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin:20px 0 14px}.history-toolbar p{font-size:12px;color:var(--text3);line-height:1.6}.history-toolbar label{font-size:12px;white-space:nowrap}.history-toolbar select{margin-left:8px;padding:8px 10px;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:8px}.history-table-wrap{overflow-x:auto}.history-table{width:100%;border-collapse:collapse;font-size:13px;background:var(--card);font-variant-numeric:tabular-nums}.history-table th,.history-table td{padding:14px 16px;text-align:right;border-bottom:1px solid var(--border)}.history-table th{font-size:12px;color:var(--text3);font-weight:500}.history-table th:first-child,.history-table td:first-child{text-align:left}.history-table td:first-child{overflow-wrap:anywhere}.historical-events .legacy-standing{margin-top:16px;font-size:12px}
+.legacy-standing{margin-top:24px;font-size:12px;color:var(--text3);border-top:1px solid var(--border);padding:18px 0}.legacy-standing summary{cursor:pointer}.legacy-standing p{margin:12px 0 8px}.legacy-standing .stat-sub{line-height:1.8}
+#settingsModal .modal-content{max-width:600px;border-radius:20px;padding:28px;background:var(--card)}
+#settingsModal .modal-header{margin-bottom:26px;border-bottom:1px solid var(--border);padding-bottom:20px}
+#settingsModal .modal-header h2{font-size:24px;font-weight:600}
+#settingsModal .settings-section{margin-bottom:22px}
+#settingsModal .settings-section-title{font-size:13px;color:var(--text3);font-weight:500;border-bottom:0;margin-bottom:4px}
+#settingsModal .settings-row{padding:16px 0}
+#settingsModal .settings-row-desc{margin-top:5px;line-height:1.6;max-width:340px}
+#settingsModal .settings-select{padding-top:10px;padding-bottom:10px;background-color:var(--bg)}
+#settingsModal .settings-save-row{justify-content:flex-end;border-top:1px solid var(--border);padding-top:20px}
+#settingsModal .settings-save-btn{flex:0 1 auto;min-width:100px;font-weight:500}
+#settingsModal .settings-save-btn-primary{background:var(--accent);box-shadow:none}
+@media(max-width:950px){.container{grid-template-columns:1fr}.module-nav{position:static;grid-column:1;grid-row:auto;flex-direction:row;gap:8px}.page-module{grid-column:1}.event-grid{grid-template-columns:repeat(auto-fit,minmax(245px,1fr))}}
+@media(max-width:520px){.container{padding:20px 14px;gap:16px}.event-grid{grid-template-columns:1fr}.event-dialog{padding:22px}.editor-fields{grid-template-columns:1fr}.workspace-toolbar p{display:none}.module-heading h2{font-size:23px}}
+
 </style>
 </head>
 <body>
@@ -988,7 +1048,7 @@
       </div>
       <div class="header-right">
         <button onclick="openShareModal()" style="display:inline-flex;align-items:center;gap:6px;padding:7px 16px;border-radius:10px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.2);font-size:13px;font-weight:600;cursor:pointer;backdrop-filter:blur(4px);transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">📸 分享</button>
-        <button onclick="openSettingsModal()" style="display:inline-flex;align-items:center;gap:6px;padding:7px 16px;border-radius:10px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.2);font-size:13px;font-weight:600;cursor:pointer;backdrop-filter:blur(4px);transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">⚙️ 设置</button>
+        <button onclick="openSettingsModal()" style="display:inline-flex;align-items:center;gap:6px;padding:7px 16px;border-radius:10px;background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.2);font-size:13px;font-weight:600;cursor:pointer;backdrop-filter:blur(4px);transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">AI 设置</button>
         <div class="status-badge">
           <div class="live-dot" id="liveDot"></div>
           <span id="statusText">加载中...</span>
@@ -1003,6 +1063,55 @@
 </div>
 
 <div class="container">
+  <nav class="module-nav" aria-label="页面模块">
+    <a href="#remindersModule">事件提醒与倒计时</a>
+    <a href="#aiModule">AI 使用统计</a>
+  </nav>
+  <section class="page-module" id="remindersModule" aria-labelledby="remindersTitle">
+    <header class="module-heading"><span class="module-icon">⏱</span><div><h2 id="remindersTitle">事件提醒与倒计时</h2><p>管理日常提醒、并行计时和全屏专注，查看完成记录。</p></div></header>
+
+
+<section id="eventManager" class="event-workspace">
+  <div class="workspace-toolbar"><div><h3>我的提醒</h3><p>让日常的小事，按自己的节奏发生。</p></div><div class="toolbar-actions"><button class="event-button" id="completionOpen" type="button">完成明细</button><button class="event-button primary" id="eventAdd" type="button">＋ 新建提醒</button></div></div>
+  <div class="event-overview" id="eventOverview" aria-live="polite"></div>
+  <div id="eventList" class="event-grid"></div>
+  <p id="eventError" role="status" class="event-feedback"></p>
+</section>
+<dialog id="eventEditor" class="event-dialog" aria-labelledby="eventEditorTitle">
+  <div class="editor-heading"><div><span class="editor-eyebrow">提醒设置</span><h3 id="eventEditorTitle">新建提醒</h3></div><button type="button" class="event-icon-button" id="eventClose" aria-label="关闭设置">×</button></div>
+  <form id="eventForm">
+    <label for="eventName">提醒名称</label><input id="eventName" required maxlength="80" placeholder="例如：站立活动">
+    <div class="editor-fields"><div><label for="eventMinutes">间隔或时长</label><div class="input-unit"><input id="eventMinutes" type="number" min="0.016666666666666666" max="1440" step="any" value="45" required><span>分钟</span></div></div><div><label for="eventMode">重复方式</label><select id="eventMode"><option value="once">只倒计时一次</option><option value="completion" selected>完成后开始下一轮</option><option value="fixed">按固定间隔提醒</option></select></div></div>
+    <p class="editor-help" id="eventModeHelp">确认完成后，重新计算下一次提醒时间。</p>
+    <fieldset class="scope-field"><legend>什么时候提醒</legend><label><input type="radio" name="eventScopeChoice" value="work" checked><span>上班期间<small>下班后不提醒</small></span></label><label><input type="radio" name="eventScopeChoice" value="all"><span>全天<small>不受上下班影响</small></span></label></fieldset>
+    <select id="eventScope" hidden><option value="work">上班期间</option><option value="all">全天</option></select>
+    <details class="editor-advanced"><summary>更多设置</summary><div class="editor-fields"><div><label for="eventRetry">未完成时再提醒</label><div class="input-unit"><input id="eventRetry" type="number" min="0" max="120" value="5" required><span>分钟</span></div><p class="editor-help">填 0 则不追提醒。</p></div><div><label for="eventNotification">提醒方式</label><select id="eventNotification"><option value="modal">需要回应的弹窗</option><option value="notification">普通通知</option></select></div></div></details>
+    <p class="editor-help">修改设置不重置当前倒计时。用药提醒的间隔请按医嘱或药品说明设置。</p>
+    <p id="eventEditorError" class="event-feedback" role="status"></p>
+    <div class="editor-footer"><button class="event-button" type="button" id="eventCancel">取消</button><button class="event-button primary" type="submit" id="eventSave">创建提醒</button></div>
+  </form>
+</dialog>
+
+<dialog id="eventHistoryDialog" class="event-dialog history-dialog" aria-labelledby="eventHistoryTitle">
+  <div class="editor-heading"><div><span class="editor-eyebrow">最近 7 天</span><h3 id="eventHistoryTitle">事件记录</h3></div><button type="button" class="event-icon-button" id="eventHistoryClose" aria-label="关闭事件记录">×</button></div>
+  <div class="history-toolbar"><p id="eventHistoryPeriod" class="editor-help"></p><button class="event-button" id="eventCompletionOpen" type="button">查看完成明细</button></div>
+  <div class="history-table-wrap"><table class="history-table"><thead><tr><th scope="col">日期</th><th scope="col">提醒总计</th><th scope="col">追提醒</th><th scope="col">完成</th></tr></thead><tbody id="eventDailyRows"></tbody></table></div>
+  <p class="editor-help">旧版提醒计入总计，无法区分是否为追提醒。</p>
+</dialog>
+<dialog id="completionDialog" class="event-dialog history-dialog" aria-labelledby="completionTitle">
+<div class="editor-heading"><div><span class="editor-eyebrow">详细记录</span><h3 id="completionTitle">完成明细</h3></div><button type="button" class="event-icon-button" id="completionClose" aria-label="关闭完成明细">×</button></div>
+<div class="completion-filters"><label for="completionDate">日期<input type="date" id="completionDate"></label><label for="completionEvent">事件<select id="completionEvent"></select></label></div>
+<p id="completionSummary" class="editor-help"></p><div class="history-table-wrap"><table class="history-table"><thead><tr><th scope="col">完成时间</th><th scope="col">事件</th><th scope="col">记录来源</th></tr></thead><tbody id="completionRows"></tbody></table></div>
+<p class="editor-help">按本地时间显示，最新记录在上方。单次倒计时表示本轮结束，重复事件表示已确认完成。</p></dialog>
+<details class="historical-events" id="historicalEvents"><summary>历史事件统计</summary>
+  <div class="history-toolbar"><p id="eventHistorySummary">正在读取记录…</p><label>统计范围 <select id="eventHistoryRange"><option value="7">最近 7 天</option><option value="30">最近 30 天</option><option value="1">今天</option></select></label></div>
+  <div class="history-table-wrap"><table class="history-table"><thead><tr><th scope="col">事件</th><th scope="col">提醒总计</th><th scope="col">到点</th><th scope="col">追提醒</th><th scope="col">完成</th></tr></thead><tbody id="eventHistoryRows"></tbody></table></div>
+  <p class="editor-help">旧版站立记录已合并并去重。旧提醒计入提醒总计，但无法区分到点和追提醒；已删除事件的记录也保留。单次倒计时的完成表示本轮结束，重复事件的完成表示手动确认。</p>
+  <details class="legacy-standing"><summary>旧版站立记录</summary><p id="standUpToday">提醒 0 次 · 已站立 0 次</p><div id="standUpHistory" class="stat-sub"></div></details>
+</details>
+  </section>
+  <section class="page-module" id="aiModule" aria-labelledby="aiTitle">
+    <header class="module-heading"><span class="module-icon">AI</span><div><h2 id="aiTitle">AI 使用统计</h2><p>查看使用时长、每日额度、工具分布和历史趋势。</p></div></header>
   <!-- 今日概览 -->
   <div class="overview" id="overview">
     <div class="stat-card">
@@ -1025,12 +1134,6 @@
       <div class="stat-value" id="total30">--:--</div>
       <div class="stat-sub" id="total30Sub"></div>
     </div>
-  </div>
-
-  <div class="progress-section">
-    <div class="progress-header"><span class="progress-title">今日站立记录</span></div>
-    <p id="standUpToday">提醒 0 次 · 已站立 0 次</p>
-    <div id="standUpHistory" class="stat-sub"></div>
   </div>
 
   <!-- 今日进度 -->
@@ -1118,6 +1221,7 @@
       <div class="resource-loading">加载中...</div>
     </div>
   </div>
+  </section>
 </div>
 
 <div class="footer">
@@ -1251,7 +1355,7 @@
 <div class="modal-overlay" id="settingsModal">
   <div class="modal-content">
     <div class="modal-header">
-      <h2>⚙️ 设置</h2>
+      <h2>AI 使用设置</h2>
       <button class="modal-close" onclick="closeSettingsModal()">✕</button>
     </div>
 
@@ -1385,8 +1489,8 @@ const API_BASE = window.location.origin;
 let currentTheme = 'dark';
 
 function initTheme() {
-  // 从服务器加载主题配置
-  fetch(API_BASE + '/api/config')
+  // 从服务器加载主题配置；返回 Promise 以便启动流程能等待主题就绪再渲染
+  return fetch(API_BASE + '/api/config')
     .then(r => r.json())
     .then(config => {
       currentTheme = config.theme || 'dark';
@@ -1418,6 +1522,8 @@ function updateThemeIcon(theme) {
 function toggleTheme() {
   const newTheme = currentTheme === 'dark' ? 'tencent-blue' : 'dark';
   applyTheme(newTheme);
+  // 热力图颜色是渲染时写死的 rgba，切换主题后立刻重绘
+  if (latestData) render(latestData);
   
   // 保存到服务器
   fetch(API_BASE + '/api/config', {
@@ -1429,13 +1535,12 @@ function toggleTheme() {
   });
 }
 
-// 绑定主题切换按钮
+// 绑定主题切换按钮（主题的首次加载由启动流程里的 await initTheme() 负责，这里不重复请求）
 document.addEventListener('DOMContentLoaded', () => {
   const themeToggle = document.getElementById('themeToggle');
   if (themeToggle) {
     themeToggle.addEventListener('click', toggleTheme);
   }
-  initTheme();
 });
 
 function fmtDuration(secs) {
@@ -1612,7 +1717,7 @@ function getTools(entry) {
 
 let trendDays = 14;
 let heatmapDays = 30;
-let latestData = null; // { report, monthly, yearly }
+let latestData = null; // { report, yearly }
 
 function setTrendDays(days) {
   trendDays = days;
@@ -1631,34 +1736,57 @@ function setHeatmapDays(days) {
 }
 
 async function fetchData() {
+  // 全量加载：仅在页面打开时执行一次。monthly 汇总页面未使用，不拉取。
   try {
-    const reportResp = await fetch(API_BASE + '/api/report');
+    const [reportResp, yearlyResp] = await Promise.all([
+      fetch(API_BASE + '/api/report'),
+      fetch(API_BASE + '/api/summary/yearly?years=3'),
+    ]);
     if (!reportResp.ok) {
       throw new Error('report api not available');
     }
     const report = await reportResp.json();
-
-    let monthly = { monthly: [] };
-    let yearly = { yearly: [] };
-    try {
-      const monthlyResp = await fetch(API_BASE + '/api/summary/monthly?months=12');
-      if (monthlyResp.ok) monthly = await monthlyResp.json();
-    } catch (_) {}
-    try {
-      const yearlyResp = await fetch(API_BASE + '/api/summary/yearly?years=3');
-      if (yearlyResp.ok) yearly = await yearlyResp.json();
-    } catch (_) {}
-
-    return { report, monthly, yearly };
+    const yearly = yearlyResp.ok ? await yearlyResp.json() : { yearly: [] };
+    return { report, yearly };
   } catch(e) {
     console.error('Fetch error:', e);
     return null;
   }
 }
 
+async function fetchToday() {
+  // 轻量轮询：只取今日实时数据和状态，不重复拉全量历史
+  try {
+    const resp = await fetch(API_BASE + '/api/today');
+    if (!resp.ok) {
+      throw new Error('today api not available');
+    }
+    return await resp.json();
+  } catch(e) {
+    console.error('Fetch error:', e);
+    return null;
+  }
+}
+
+function mergeToday(today) {
+  // 把 /api/today 的实时数据合并进首次加载的全量数据
+  if (!latestData || !today) return;
+  const { report } = latestData;
+  report.status.today_seconds = today.total_seconds;
+  report.status.today_tools = today.tools;
+  report.status.is_active = today.is_active;
+  report.status.is_monitoring = today.is_monitoring;
+  report.status.detail = today.detail;
+  report.status.resources = today.resources || [];
+  report.stand_up = report.stand_up || {};
+  report.stand_up[today.date] = today.stand_up || {};
+  report.config.daily_limit_minutes = today.limit_minutes;
+  report.history[today.date] = { total: today.total_seconds, tools: today.tools };
+}
+
 function render(data) {
   if (!data) return;
-  const { report, monthly, yearly } = data;
+  const { report, yearly } = data;
   const { history, config, status } = report;
   const limitSec = (config.daily_limit_minutes || 180) * 60;
   const today = getDateStr(0);
@@ -1676,6 +1804,8 @@ function render(data) {
   if (status.is_active) {
     statusEl.textContent = status.detail || 'AI 使用中';
     dotEl.style.background = 'var(--green)';
+    // 恢复脉冲动画：之前置为 'none' 后这里必须清回，否则绿点不再闪
+    dotEl.style.animation = '';
   } else if (!status.is_monitoring) {
     statusEl.textContent = '监控已暂停';
     dotEl.style.background = 'var(--orange)';
@@ -1782,11 +1912,16 @@ function render(data) {
     b.className = 'bar ' + (d.isToday ? 'today' : d.isOver ? 'over' : 'normal');
     b.style.height = Math.max(4, heightPct) + '%';
 
+    // 柱子包一层 bar-plot：柱高和限额线的百分比都以图表绘图区为基准，
+    // 否则限额线相对柱子自身高度定位，柱子不高时位置就错了
+    const plot = document.createElement('div');
+    plot.className = 'bar-plot';
+    plot.appendChild(b);
     if (d.isToday) {
       const line = document.createElement('div');
       line.className = 'bar-limit-line';
       line.style.bottom = limitPct + '%';
-      b.appendChild(line);
+      plot.appendChild(line);
     }
 
     const lbl = document.createElement('div');
@@ -1799,7 +1934,7 @@ function render(data) {
     }
 
     group.appendChild(val);
-    group.appendChild(b);
+    group.appendChild(plot);
     group.appendChild(lbl);
     barChart.appendChild(group);
   });
@@ -2070,17 +2205,20 @@ randomQuote();
 
 // 首次加载 + 自动刷新
 (async function loop() {
-  // 先加载主题配置
+  // 先加载主题配置，等主题就绪再渲染，避免热力图用错配色
   await initTheme();
-  
+
   const data = await fetchData();
   latestData = data;
   render(data);
 
   setInterval(async () => {
-    const d = await fetchData();
-    latestData = d;
-    render(d);
+    // 页面不可见时暂停轮询，回到前台时下一轮自动恢复
+    if (document.hidden) return;
+    const today = await fetchToday();
+    if (!today) return;
+    mergeToday(today);
+    render(latestData);
     randomQuote();
   }, 30000);
 })();
@@ -2528,6 +2666,157 @@ function shareSetSkin(skin) {
     scHeader.style.background = SKIN_GRADIENTS[skin] || SKIN_GRADIENTS.purple;
   }
 }
+
+let editingEventId = null;
+let eventRequestNumber = 0;
+let eventEditorReturnFocus = null;
+function eventNode(tag, className, text) {const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=text;return node;}
+function eventFeedback(message, editor=false){document.getElementById(editor?'eventEditorError':'eventError').textContent=message;}
+async function eventCommand(action,id,config){const response=await fetch('/api/events',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,id,config})});const result=await response.json();if(!response.ok)throw Error(result.error||'操作失败');await loadEvents(true);}
+function updateEventModeHelp(){const help={once:'到时间后结束本轮，需要时再开始。',completion:'确认完成后，重新计算下一次提醒时间。',fixed:'按固定时间间隔提醒，确认完成不会改变计划。'};document.getElementById('eventModeHelp').textContent=help[document.getElementById('eventMode').value];}
+function openEventEditor(event=null){editingEventId=event?.id||null;eventEditorReturnFocus=document.activeElement;const form=document.getElementById('eventForm');form.reset();const values={eventName:event?.name||'',eventMinutes:event?event.seconds/60:45,eventMode:event?.mode||'completion',eventScope:event?.scope||'work',eventRetry:event?event.retry/60:5,eventNotification:event?.notification||'modal'};for(const [key,value]of Object.entries(values))document.getElementById(key).value=value;document.querySelector(`input[name="eventScopeChoice"][value="${values.eventScope}"]`).checked=true;document.getElementById('eventEditorTitle').textContent=event?'编辑提醒':'新建提醒';document.getElementById('eventSave').textContent=event?'保存修改':'创建提醒';document.querySelector('.editor-advanced').open=false;eventFeedback('',true);updateEventModeHelp();document.getElementById('eventEditor').showModal();document.getElementById('eventName').focus();}
+function closeEventEditor(){document.getElementById('eventEditor').close();editingEventId=null;if(eventEditorReturnFocus?.isConnected)eventEditorReturnFocus.focus();else document.getElementById('eventAdd').focus();}
+async function eventAction(event,action,button){if(action==='edit'){openEventEditor(event);return;}if(action==='delete'&&!confirm(`删除“${event.name}”？历史记录会保留。`))return;button.disabled=true;try{await eventCommand(action==='focus'?'native_focus':action,event.id);eventFeedback(action==='native_focus'||action==='focus'?'已打开屏幕专注':'已更新');}catch(error){eventFeedback(error.message);}finally{button.disabled=false;}}
+let selectedHistoryEvent = null;
+let historyReturnFocus = null;
+function renderEventDailyHistory() {
+  if (!selectedHistoryEvent || !eventHistoryData) return;
+  document.getElementById('eventHistoryTitle').textContent = selectedHistoryEvent.name;
+  document.getElementById('eventHistoryPeriod').textContent = `${getDateStr(6)} — ${getDateStr(0)}`;
+  const body = document.getElementById('eventDailyRows');
+  body.replaceChildren();
+  for (let offset=0; offset<7; offset++) {
+    const day=getDateStr(offset);
+    const entries=eventHistoryData.history.filter(record=>record.event_id===selectedHistoryEvent.id && record.time.startsWith(day));
+    const counts=[entries.filter(record=>['due','followup','legacy_reminder'].includes(record.kind)).length,
+                  entries.filter(record=>record.kind==='followup').length,
+                  entries.filter(record=>record.kind==='completed').length];
+    const row=eventNode('tr');
+    row.append(eventNode('td','',offset===0?'今天':day.slice(5)));
+    counts.forEach(count=>row.append(eventNode('td','',String(count))));
+    body.append(row);
+  }
+}
+function openEventHistory(event) {
+  selectedHistoryEvent=event;
+  historyReturnFocus=document.activeElement;
+  renderEventDailyHistory();
+  document.getElementById('eventHistoryDialog').showModal();
+  document.getElementById('eventHistoryClose').focus();
+}
+function closeEventHistory() {
+  document.getElementById('eventHistoryDialog').close();
+  if (historyReturnFocus?.isConnected) historyReturnFocus.focus();
+  else {
+    const button=Array.from(document.querySelectorAll('.event-history-link')).find(button=>button.dataset.event===selectedHistoryEvent?.id);
+    (button||document.getElementById('eventAdd')).focus();
+  }
+  selectedHistoryEvent=null;
+}
+document.getElementById('eventHistoryClose').onclick=closeEventHistory;
+document.getElementById('eventHistoryDialog').addEventListener('cancel',event=>{event.preventDefault();closeEventHistory();});
+let eventHistoryData = null;
+let completionReturnFocus=null;
+function renderCompletionDetails() {
+  if(!eventHistoryData)return;
+  const day=document.getElementById('completionDate').value;
+  const id=document.getElementById('completionEvent').value;
+  const records=eventHistoryData.history.filter(record=>record.kind==='completed'&&record.time.startsWith(day)&&(!id||record.event_id===id)).sort((a,b)=>b.time.localeCompare(a.time));
+  document.getElementById('completionSummary').textContent=`${day} · 已完成 ${records.length} 次`;
+  const body=document.getElementById('completionRows');body.replaceChildren();
+  records.forEach(record=>{
+    const row=eventNode('tr');
+    const name=eventHistoryData.events.find(event=>event.id===record.event_id)?.name||record.name;
+    row.append(eventNode('td','',record.time.slice(11,19)),eventNode('td','',name),eventNode('td','',record.source==='legacy_standing'?'旧版记录':'完成记录'));
+    body.append(row);
+  });
+  if(!records.length){const row=eventNode('tr');const cell=eventNode('td','','这一天还没有完成记录');cell.colSpan=3;row.append(cell);body.append(row);}
+}
+function openCompletionDetails(eventId='') {
+  completionReturnFocus=document.activeElement;
+  const select=document.getElementById('completionEvent');select.replaceChildren();
+  const all=eventNode('option','','全部事件');all.value='';select.append(all);
+  const names=new Map(eventHistoryData.events.map(event=>[event.id,event.name]));
+  eventHistoryData.history.forEach(record=>{if(!names.has(record.event_id))names.set(record.event_id,record.name+'（已删除）');});
+  names.forEach((name,id)=>{const option=eventNode('option','',name);option.value=id;select.append(option);});
+  select.value=eventId;document.getElementById('completionDate').value=getDateStr(0);
+  renderCompletionDetails();document.getElementById('completionDialog').showModal();
+}
+function closeCompletionDetails(){document.getElementById('completionDialog').close();if(completionReturnFocus?.isConnected)completionReturnFocus.focus();else document.getElementById('completionOpen').focus();}
+document.getElementById('completionOpen').onclick=()=>openCompletionDetails();
+document.getElementById('completionClose').onclick=closeCompletionDetails;
+document.getElementById('completionDialog').addEventListener('cancel',event=>{event.preventDefault();closeCompletionDetails();});
+document.getElementById('completionDate').onchange=renderCompletionDetails;
+document.getElementById('completionEvent').onchange=renderCompletionDetails;
+document.getElementById('eventCompletionOpen').onclick=()=>openCompletionDetails(selectedHistoryEvent?.id||'');
+
+function renderEventHistory(data) {
+  eventHistoryData = data;
+  if(document.getElementById("completionDialog").open)renderCompletionDetails();
+  if (document.getElementById("eventHistoryDialog").open) renderEventDailyHistory();
+  const days = Number(document.getElementById('eventHistoryRange').value);
+  const from = getDateStr(days-1), to = getDateStr(0);
+  const records = data.history.filter(record=>record.time.slice(0,10)>=from && record.time.slice(0,10)<=to);
+  const rows = new Map(data.events.map(event=>[event.id,{name:event.name,due:0,followup:0,legacy_reminder:0,completed:0}]));
+  for (const record of records) {
+    if (!rows.has(record.event_id)) rows.set(record.event_id,{name:record.name+'（已删除）',due:0,followup:0,legacy_reminder:0,completed:0});
+    const row = rows.get(record.event_id);
+    if (['due','followup','legacy_reminder','completed'].includes(record.kind)) row[record.kind]++;
+  }
+  const count = kind=>records.filter(record=>record.kind===kind).length;
+  document.getElementById('eventHistorySummary').textContent = `${from} — ${to} · 提醒 ${count('due')+count('followup')+count('legacy_reminder')} 次 · 完成 ${count('completed')} 次${count('legacy_reminder') ? '（其中 '+count('legacy_reminder')+' 次为旧版提醒）' : ''}`;
+  const table = document.getElementById('eventHistoryRows'); table.replaceChildren();
+  for (const row of rows.values()) {
+    const tr=eventNode('tr');
+    for (const value of [row.name,row.due+row.followup+row.legacy_reminder,row.due,row.followup,row.completed]) tr.append(eventNode('td','',String(value)));
+    table.append(tr);
+  }
+  if (!rows.size) {
+    const tr=eventNode('tr');const cell=eventNode('td','','还没有事件记录');cell.colSpan=5;tr.append(cell);table.append(tr);
+  }
+}
+document.getElementById('eventHistoryRange').onchange=()=>{if(eventHistoryData)renderEventHistory(eventHistoryData);};
+
+async function loadEvents(force=false){const request=++eventRequestNumber;try{const response=await fetch('/api/events');if(!response.ok)throw Error('暂时无法读取事件');const data=await response.json();if(request!==eventRequestNumber)return;renderEventHistory(data);const list=document.getElementById('eventList');if(!force&&(list.querySelector('.event-more[open]')||list.contains(document.activeElement)))return;const fragment=document.createDocumentFragment();const modes={once:'单次倒计时',completion:'完成后重复',fixed:'固定间隔'};const today=getDateStr(0);document.getElementById('eventOverview').textContent=`${data.schedule?.enabled?'周一至周五 08:00 至次日 01:00 · 所有活动 · ':''}${data.events.length} 个提醒 · ${data.events.filter(e=>e.state==='running'||e.state==='waiting'||e.state==='snoozed').length} 个进行中 · ${data.history.filter(h=>h.kind==='completed'&&h.time.startsWith(today)).length} 次今日完成`;
+for(const event of data.events){const off=(data.schedule?.enabled&&!data.schedule.active)||(event.scope==='work'&&!data.on_duty);const state=off?'已下班':event.state==='paused'?'已暂停':event.state==='snoozed'?'稍后提醒':event.pending?'待完成':event.state==='idle'?'未开始':'进行中';const card=eventNode('article','event-card');card.dataset.event=event.id;const top=eventNode('div','event-card-top');top.append(eventNode('h4','',event.name),eventNode('span','event-badge'+(event.pending&&!off?' pending':state==='进行中'?' running':''),state));card.append(top,eventNode('p','event-meta',`${modes[event.mode]} · ${event.scope==='work'?'上班期间':'全天'}`));const caption=off?'下次上班后重新计时':event.pending?'完成后请确认':event.state==='paused'?'暂停时保留剩余时间':event.state==='idle'?`${event.seconds/60} 分钟 / 每轮`:'距离下次提醒';const seconds=event.state==='paused'?event.remaining:event.due?Math.max(0,event.due-Date.now()/1000):event.seconds;card.append(eventNode('div','event-clock'+(event.pending||off?' caption':''),off?'下班休息':event.pending?'等待完成':fmtDuration(Math.ceil(seconds))),eventNode('p','event-clock-label',caption));const entries=data.history.filter(h=>h.event_id===event.id&&h.time.startsWith(today));const metrics=eventNode('div','event-metrics');for(const [kind,label]of [['reminders','提醒总计'],['followup','追提醒'],['completed','已完成']]){const metric=eventNode('div');metric.append(eventNode('strong','',String(entries.filter(h=>kind==='reminders'?['due','followup','legacy_reminder'].includes(h.kind):h.kind===kind).length)),eventNode('span','',label));metrics.append(metric);}card.append(metrics);
+const actions=eventNode('div','event-card-actions');let primary=event.id==='standing'?['站立 1 分钟','focus']:event.pending?['我已完成','complete']:event.state==='paused'?['继续计时','resume']:event.mode==='once'?['全屏专注','focus']:event.state==='idle'?['开始提醒','start']:['记录完成','complete'];const button=eventNode('button','event-button primary',primary[0]);button.type='button';button.disabled=off;button.onclick=()=>eventAction(event,primary[1],button);const edit=eventNode('button','event-button','编辑');edit.type='button';edit.onclick=()=>openEventEditor(event);actions.append(button,edit);const more=eventNode('details','event-more');const summary=eventNode('summary','','···');summary.setAttribute('aria-label',event.name+'的更多操作');const menu=eventNode('div','event-more-menu');for(const [label,action]of [['暂停计时','pause'],['暂停 1 小时','pause1h'],['暂停 2 小时','pause2h'],['稍后提醒','snooze'],['重新开始','start'],['取消本轮','stop'],['删除提醒','delete']]){const secondary=eventNode('button',action==='delete'?'danger':'',label);secondary.type='button';secondary.onclick=()=>{more.open=false;eventAction(event,action,secondary);};menu.append(secondary);}more.append(summary,menu);actions.append(more);card.append(actions);
+const recent=eventNode('button','event-history-link','查看最近 7 天记录 →');recent.type='button';recent.dataset.event=event.id;recent.onclick=()=>openEventHistory(event);card.append(recent);fragment.append(card);}
+if(!data.events.length)fragment.append(eventNode('div','event-empty','还没有提醒。新建一个，安排你的第一件小事。'));list.replaceChildren(fragment);
+}catch(error){eventFeedback(error.message);}}
+document.getElementById('eventAdd').onclick=()=>openEventEditor();document.getElementById('eventClose').onclick=closeEventEditor;document.getElementById('eventCancel').onclick=closeEventEditor;document.getElementById('eventMode').onchange=updateEventModeHelp;document.getElementById('eventEditor').addEventListener('cancel',e=>{e.preventDefault();closeEventEditor();});document.querySelectorAll('input[name="eventScopeChoice"]').forEach(input=>input.onchange=()=>{document.getElementById('eventScope').value=input.value;});
+document.getElementById('eventForm').onsubmit=async e=>{e.preventDefault();const save=document.getElementById('eventSave');save.disabled=true;try{const config={name:document.getElementById('eventName').value,minutes:Number(document.getElementById('eventMinutes').value),mode:document.getElementById('eventMode').value,scope:document.getElementById('eventScope').value,retry_minutes:Number(document.getElementById('eventRetry').value),notification:document.getElementById('eventNotification').value};await eventCommand(editingEventId?'edit':'add',editingEventId,config);closeEventEditor();eventFeedback('提醒已保存');}catch(error){eventFeedback(error.message,true);}finally{save.disabled=false;}};
+const moduleLinks = Array.from(document.querySelectorAll('.module-nav a'));
+const moduleSections = moduleLinks.map(link => document.querySelector(link.getAttribute('href')));
+let moduleNavFrame = null;
+function updateModuleNavigation() {
+  moduleNavFrame = null;
+  const readingLine = Math.min(160, window.innerHeight * 0.2);
+  let current = moduleSections[0];
+  for (const section of moduleSections) {
+    if (section && section.getBoundingClientRect().top <= readingLine) current = section;
+  }
+  if (window.scrollY > 0 && window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2) {
+    current = moduleSections[moduleSections.length - 1];
+  }
+  for (const link of moduleLinks) {
+    const active = link.getAttribute('href') === '#' + current.id;
+    link.classList.toggle('active', active);
+    if (active) link.setAttribute('aria-current', 'location');
+    else link.removeAttribute('aria-current');
+  }
+}
+function scheduleModuleNavigation() {
+  if (moduleNavFrame === null) moduleNavFrame = requestAnimationFrame(updateModuleNavigation);
+}
+window.addEventListener('scroll', scheduleModuleNavigation, { passive: true });
+window.addEventListener('resize', scheduleModuleNavigation);
+window.addEventListener('hashchange', scheduleModuleNavigation);
+window.addEventListener('load', scheduleModuleNavigation);
+const moduleLayoutObserver = new ResizeObserver(scheduleModuleNavigation);
+moduleSections.forEach(section => { if (section) moduleLayoutObserver.observe(section); });
+scheduleModuleNavigation();
+document.addEventListener('click',event=>{if(!event.target.closest('.event-more'))document.querySelectorAll('.event-more[open]').forEach(menu=>menu.open=false);});
+loadEvents();setInterval(()=>{if(!document.hidden)loadEvents();},5000);
 
 </script>
 </body>
