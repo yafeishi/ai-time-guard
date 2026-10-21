@@ -2,6 +2,7 @@
 import json
 import sys
 import time
+import signal
 import urllib.request
 import objc
 from Foundation import NSObject, NSTimer, NSMakeRect
@@ -15,7 +16,18 @@ from AppKit import (
 )
 
 BASE = 'http://127.0.0.1:19527'
-EVENT_ID = sys.argv[1]
+AWAY_MODE = '--away' in sys.argv
+EVENT_ID = None if AWAY_MODE else sys.argv[1]
+SHOULD_CLOSE = False
+
+
+def request_close(signum, frame):
+    global SHOULD_CLOSE
+    SHOULD_CLOSE = True
+
+
+if AWAY_MODE:
+    signal.signal(signal.SIGTERM, request_close)
 STANDING_MINUTE = '--standing-minute' in sys.argv
 
 
@@ -53,6 +65,9 @@ class FocusWindow(NSWindow):
 
 class FocusController(NSObject):
     def applicationDidFinishLaunching_(self, notification):
+        if AWAY_MODE:
+            self.start_away_screen()
+            return
         self.previous = NSWorkspace.sharedWorkspace().frontmostApplication()
         self.active = False
         self.finished = False
@@ -91,6 +106,59 @@ class FocusController(NSObject):
             self.status.setHidden_(False)
             self.status.setStringValue_('无法开始：' + str(exc))
         self.timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(1, self, 'tick:', None, True)
+
+    @objc.python_method
+    def start_away_screen(self):
+        self.previous = NSWorkspace.sharedWorkspace().frontmostApplication()
+        self.away_started = time.time()
+        self.away_windows = []
+        self.away_clocks = []
+        self.closing = False
+        for screen in NSScreen.screens():
+            frame = screen.frame()
+            width, height = frame.size.width, frame.size.height
+            self.window = FocusWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+                frame, NSWindowStyleMaskBorderless, NSBackingStoreBuffered, False)
+            self.window.focusController = self
+            self.window.setReleasedWhenClosed_(False)
+            self.window.setLevel_(NSStatusWindowLevel + 1)
+            self.window.setCollectionBehavior_(NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary)
+            self.window.setBackgroundColor_(NSColor.colorWithCalibratedRed_green_blue_alpha_(0.035, 0.05, 0.095, 1))
+            self.label_('离座休息中', (0, height*.65, width, 70), 36)
+            self.away_clocks.append(self.label_('00:00', (0, height*.35, width, height*.25), min(150, width*.12)))
+            self.label_('活动计时已暂停，回来后自动继续', (0, height*.28, width, 60), 20)
+            self.button_('退出画面 · Esc', (width-250, height-80, 220, 44), 'exit:')
+            self.label_('退出画面不会恢复活动计时', (0, 40, width, 44), 15)
+            self.window.orderFrontRegardless()
+            self.away_windows.append(self.window)
+        app = NSApplication.sharedApplication()
+        app.setPresentationOptions_(NSApplicationPresentationAutoHideDock | NSApplicationPresentationAutoHideMenuBar)
+        self.window.makeKeyAndOrderFront_(None)
+        app.activateIgnoringOtherApps_(True)
+        self.timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(.5, self, 'tick:', None, True)
+        self.tick_(None)
+
+    @objc.python_method
+    def tick_away_screen(self):
+        if SHOULD_CLOSE:
+            self.exit_(None)
+            return
+        try:
+            with urllib.request.urlopen(BASE+'/api/camera', timeout=1) as response:
+                state = json.load(response)
+            settings = state.get('settings', {})
+            if (state['status'] != 'running' or state['presence'] != 'away'
+                    or not settings.get('camera_away_enabled') or not settings.get('camera_away_fullscreen', True)):
+                self.exit_(None)
+                return
+            if state.get('missing_since') is not None:
+                self.away_started = state['missing_since']
+        except Exception:
+            self.exit_(None)
+            return
+        seconds = max(0, int(time.time()-self.away_started))
+        for clock in self.away_clocks:
+            clock.setStringValue_(f'{seconds//60:02d}:{seconds%60:02d}')
 
     @objc.python_method
     def label_(self, text, rect, size):
@@ -142,6 +210,9 @@ class FocusController(NSObject):
             self.status.setStringValue_('操作失败：' + str(exc))
 
     def tick_(self, timer):
+        if AWAY_MODE:
+            self.tick_away_screen()
+            return
         try:
             if self.active:
                 command('focus_heartbeat')
@@ -195,6 +266,20 @@ class FocusController(NSObject):
             self.exit_(None)
 
     def exit_(self, sender):
+        if AWAY_MODE:
+            if self.closing:
+                return
+            self.closing = True
+            self.timer.invalidate()
+            app = NSApplication.sharedApplication()
+            restore = app.isActive()
+            for window in self.away_windows:
+                window.orderOut_(None)
+            app.setPresentationOptions_(0)
+            if restore and self.previous:
+                self.previous.activateWithOptions_(0)
+            app.terminate_(None)
+            return
         if hasattr(self, 'timer'):
             self.timer.invalidate()
         try:

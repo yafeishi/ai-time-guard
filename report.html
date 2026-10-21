@@ -1086,6 +1086,7 @@
     <div class="camera-options">
       <label class="camera-choice"><input type="checkbox" id="cameraBlink"><span>眨眼检测<small>频率低于设定目标时弹窗提醒，关闭后至少间隔 5 分钟。</small></span></label>
       <label class="camera-choice"><input type="checkbox" id="cameraAway"><span>离座自动暂停<small>暂停运行中的活动，保留剩余时间；手动暂停不会自动恢复。</small></span></label>
+      <label class="camera-choice"><input type="checkbox" id="cameraAwayFullscreen"><span>离座全屏画面<small>离座自动暂停时显示，回座后关闭；Esc 可退出画面。</small></span></label>
     </div>
     <div class="camera-fields">
       <label for="cameraTarget">眨眼提醒目标<div class="input-unit"><input type="number" min="5" max="40" value="12" id="cameraTarget"><span>次/分钟</span></div></label>
@@ -2865,6 +2866,7 @@ async function loadCamera() {
     if(!cameraSettingsDirty&&!cameraSaving) {
       document.getElementById('cameraBlink').checked=Boolean(settings.camera_blink_enabled);
       document.getElementById('cameraAway').checked=Boolean(settings.camera_away_enabled);
+      document.getElementById('cameraAwayFullscreen').checked=settings.camera_away_fullscreen!==false;
       document.getElementById('cameraTarget').value=settings.camera_blink_target||12;
       document.getElementById('cameraAwayDelay').value=settings.camera_away_seconds||10;
       const select=document.getElementById('cameraDevice'),id=settings.camera_device_id||'';
@@ -2875,7 +2877,7 @@ async function loadCamera() {
 }
 document.getElementById('cameraForm').onsubmit=async event=>{
   event.preventDefault();cameraSaving=true;const button=document.getElementById('cameraSave');button.disabled=true;
-  try{await cameraRequest('config',{camera_blink_enabled:document.getElementById('cameraBlink').checked,camera_away_enabled:document.getElementById('cameraAway').checked,camera_blink_target:Number(document.getElementById('cameraTarget').value),camera_away_seconds:Number(document.getElementById('cameraAwayDelay').value),camera_device_id:document.getElementById('cameraDevice').value});cameraSettingsDirty=false;cameraSaving=false;await loadCamera();}
+  try{await cameraRequest('config',{camera_blink_enabled:document.getElementById('cameraBlink').checked,camera_away_enabled:document.getElementById('cameraAway').checked,camera_away_fullscreen:document.getElementById('cameraAwayFullscreen').checked,camera_blink_target:Number(document.getElementById('cameraTarget').value),camera_away_seconds:Number(document.getElementById('cameraAwayDelay').value),camera_device_id:document.getElementById('cameraDevice').value});cameraSettingsDirty=false;cameraSaving=false;await loadCamera();}
   catch(error){document.getElementById('cameraError').textContent=error.message;}
   finally{cameraSaving=false;button.disabled=false;}
 };

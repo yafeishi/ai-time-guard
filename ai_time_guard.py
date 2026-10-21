@@ -14,6 +14,7 @@ AI Time Guard - Mac 菜单栏应用
 
 from event_reminders import EventReminders
 from camera_monitor import CameraService
+from away_screen import AwayScreenSession
 
 import rumps
 import psutil
@@ -90,6 +91,7 @@ DEFAULT_CONFIG = {
     "event_schedule_enabled": False,
     "camera_blink_enabled": False,
     "camera_away_enabled": False,
+    "camera_away_fullscreen": True,
     "camera_blink_target": 12,
     "camera_away_seconds": 10,
     "camera_device_id": "",
@@ -1794,6 +1796,7 @@ class AITimeGuardApp(rumps.App):
 
         self.events = EventReminders(CONFIG_DIR / 'events.json', self.config)
         self.camera = CameraService(CONFIG_DIR, APP_DIR)
+        self.away_screen = AwayScreenSession(APP_DIR)
         self.events_menu = rumps.MenuItem("⏱ 事件提醒")
         self.events_menu_dirty = True
         self.refresh_event_menu()
@@ -1830,6 +1833,8 @@ class AITimeGuardApp(rumps.App):
         self.camera_blink_item._camera_key = 'camera_blink_enabled'
         self.camera_away_item = rumps.MenuItem("离座自动暂停活动", callback=self.toggle_camera_setting)
         self.camera_away_item._camera_key = 'camera_away_enabled'
+        self.camera_fullscreen_item = rumps.MenuItem('离座时显示全屏画面', callback=self.toggle_camera_setting)
+        self.camera_fullscreen_item._camera_key = 'camera_away_fullscreen'
         target_menu = rumps.MenuItem("目标眨眼频率")
         self.camera_target_items = []
         for target in (8, 10, 12, 15, 20):
@@ -1846,7 +1851,7 @@ class AITimeGuardApp(rumps.App):
             self.camera_delay_items.append(item)
         for item in [self.camera_status_item, self.camera_rate_item, self.camera_today_item,
                      self.camera_week_item, self.camera_presence_item, rumps.separator,
-                     self.camera_blink_item, self.camera_away_item, target_menu, delay_menu,
+                     self.camera_blink_item, self.camera_away_item, self.camera_fullscreen_item, target_menu, delay_menu,
                      rumps.MenuItem("重新校准", callback=self.recalibrate_camera),
                      rumps.MenuItem("详细设置与统计…", callback=self.open_camera_settings)]:
             self.camera_menu.add(item)
@@ -1899,6 +1904,7 @@ class AITimeGuardApp(rumps.App):
         self.camera_presence_item.title = '在座状态：' + presence
         self.camera_blink_item.state = blink_enabled
         self.camera_away_item.state = self.config.get('camera_away_enabled', False)
+        self.camera_fullscreen_item.state = self.config.get('camera_away_fullscreen', True)
         for item in self.camera_target_items + self.camera_delay_items:
             item.state = self.config.get(item._camera_key) == item._camera_value
 
@@ -2000,6 +2006,11 @@ class AITimeGuardApp(rumps.App):
             if self.config.get('camera_away_enabled') and camera_state['status'] == 'running':
                 present = True if camera_state['presence'] == 'present' else False if camera_state['presence'] == 'away' else None
             self.events.sync_presence(present)
+            focus_process = getattr(self, 'native_focus_process', None)
+            focus_running = focus_process is not None and focus_process.poll() is None
+            self.away_screen.sync(away=present is False and allowed and self.config.get('camera_away_fullscreen', True),
+                                  blocked=focus_running or time.time() < getattr(self, 'focus_until', 0)
+                                  or getattr(self, '_blink_alert_open', False))
         request = getattr(self, 'native_focus_request', None)
         if request:
             self.native_focus_request = None
@@ -2944,6 +2955,8 @@ class AITimeGuardApp(rumps.App):
             )
 
     def quit_app(self, _):
+        if hasattr(self, "away_screen"):
+            self.away_screen.stop()
         if hasattr(self, "camera"):
             self.camera.stop()
         if hasattr(self, "events_timer"):
