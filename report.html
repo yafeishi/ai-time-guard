@@ -994,6 +994,7 @@
   .module-heading h2 { font-size:25px; margin-bottom:6px; }
   .module-heading p { color:var(--text2); font-size:14px; line-height:1.6; }
   @media(max-width:600px) { .page-module { padding:14px; } .module-heading h2 {font-size:21px;} }
+.camera-panel{border:1px solid var(--border);border-radius:14px;background:var(--card);padding:16px 20px;margin-bottom:20px}.camera-panel>summary{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:14px;font-weight:500;cursor:pointer}.camera-state{font-size:12px;color:var(--text3);font-weight:400}.camera-panel[open]>summary{margin-bottom:16px}.camera-readings{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:20px 0}.camera-readings span,.camera-readings small{display:block;font-size:12px;color:var(--text3);line-height:1.7}.camera-readings strong{display:block;font-size:24px;font-weight:550;margin:8px 0}.camera-options{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0}.camera-choice{display:flex;align-items:flex-start;gap:10px;font-size:13px;cursor:pointer}.camera-choice input{margin-top:3px;accent-color:var(--accent)}.camera-choice small{display:block;color:var(--text3);font-size:12px;line-height:1.7;margin-top:5px}.camera-fields{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}.camera-fields label{font-size:12px;color:var(--text2)}.camera-fields input,.camera-fields select{width:100%;min-width:0;margin-top:8px;padding:10px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;font:inherit}.camera-fields .input-unit span{top:19px;font-size:11px}.camera-fields .input-unit input{padding-right:68px!important}.camera-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}.camera-panel .event-feedback{margin:12px 0}@media(max-width:650px){.camera-options,.camera-fields{grid-template-columns:1fr}.camera-readings strong{font-size:20px}.camera-panel{padding:16px}}
 /* A quiet workspace: one primary action, details on demand. */
 .chart-card{min-width:0}.chart-title-row{flex-wrap:wrap;gap:12px}.range-switch{flex-wrap:wrap}.header::before{display:none}.header-inner{max-width:1280px}.header-top{flex-wrap:wrap;gap:14px}.header-right{flex-wrap:wrap;gap:10px;flex-shrink:1}.header-right button{background:var(--card)!important;color:var(--text)!important;border:1px solid var(--border)!important;font-weight:500!important}.header-right button:hover{background:var(--accent-light)!important}.status-badge{box-shadow:none}
 
@@ -1073,6 +1074,30 @@
 
 <section id="eventManager" class="event-workspace">
   <div class="workspace-toolbar"><div><h3>我的提醒</h3><p>让日常的小事，按自己的节奏发生。</p></div><div class="toolbar-actions"><button class="event-button" id="completionOpen" type="button">完成明细</button><button class="event-button primary" id="eventAdd" type="button">＋ 新建提醒</button></div></div>
+<details class="camera-panel" id="cameraPanel">
+  <summary><span>摄像头辅助</span><span class="camera-state" id="cameraState">未开启</span></summary>
+  <p class="editor-help">在本机检测眨眼与是否离座。不保存照片或视频；摄像头组件由系统禁止网络连接，画面仅在本机内存中处理。启用时摄像头指示灯会亮起。</p>
+  <div class="camera-readings">
+    <div><span>近期眨眼频率</span><strong id="cameraRate">—</strong><small id="cameraRateHelp">开启后需要约一分钟有效观察</small></div>
+    <div><span>在座状态</span><strong id="cameraPresence">—</strong><small id="cameraPresenceHelp">连续离座后自动暂停，回来继续计时</small></div>
+  </div>
+  <p class="editor-help" id="cameraQuality"></p><p id="cameraError" class="event-feedback" role="status"></p>
+  <form id="cameraForm">
+    <div class="camera-options">
+      <label class="camera-choice"><input type="checkbox" id="cameraBlink"><span>眨眼检测<small>频率低于设定目标时弹窗提醒，关闭后至少间隔 5 分钟。</small></span></label>
+      <label class="camera-choice"><input type="checkbox" id="cameraAway"><span>离座自动暂停<small>暂停运行中的活动，保留剩余时间；手动暂停不会自动恢复。</small></span></label>
+    </div>
+    <div class="camera-fields">
+      <label for="cameraTarget">眨眼提醒目标<div class="input-unit"><input type="number" min="5" max="40" value="12" id="cameraTarget"><span>次/分钟</span></div></label>
+      <label for="cameraAwayDelay">离座确认时间<div class="input-unit"><input type="number" min="3" max="120" value="10" id="cameraAwayDelay"><span>秒</span></div></label>
+      <label for="cameraDevice">使用摄像头<select id="cameraDevice"><option value="">系统默认摄像头</option></select></label>
+    </div>
+    <div class="camera-actions"><button type="submit" class="event-button primary" id="cameraSave">应用设置</button><button type="button" class="event-button" id="cameraCalibrate">重新校准</button><button type="button" class="event-button" id="cameraDevices">刷新摄像头列表</button></div>
+  </form>
+  <p class="editor-help">首次启用请在 macOS 弹窗中允许 AI Time Guard Camera 使用摄像头。校准时自然睁眼面对摄像头约 5 秒。眼镜、光线和角度会影响检测；多人入镜时不统计眨眼，摄像头故障不会被当成离座。回座确认约 2 秒。</p>
+  <p class="editor-help">站立的一分钟不受离座暂停影响；工作时段外会关闭摄像头。这里只提示频率是否达到你设置的目标，不判断医学标准或眨眼是否完全闭合。</p>
+</details>
+
   <div class="event-overview" id="eventOverview" aria-live="polite"></div>
   <div id="eventList" class="event-grid"></div>
   <p id="eventError" role="status" class="event-feedback"></p>
@@ -2778,8 +2803,8 @@ function renderEventHistory(data) {
 document.getElementById('eventHistoryRange').onchange=()=>{if(eventHistoryData)renderEventHistory(eventHistoryData);};
 
 async function loadEvents(force=false){const request=++eventRequestNumber;try{const response=await fetch('/api/events');if(!response.ok)throw Error('暂时无法读取事件');const data=await response.json();if(request!==eventRequestNumber)return;renderEventHistory(data);const list=document.getElementById('eventList');if(!force&&(list.querySelector('.event-more[open]')||list.contains(document.activeElement)))return;const fragment=document.createDocumentFragment();const modes={once:'单次倒计时',completion:'完成后重复',fixed:'固定间隔'};const today=getDateStr(0);document.getElementById('eventOverview').textContent=`${data.schedule?.enabled?'周一至周五 08:00 至次日 01:00 · 所有活动 · ':''}${data.events.length} 个提醒 · ${data.events.filter(e=>e.state==='running'||e.state==='waiting'||e.state==='snoozed').length} 个进行中 · ${data.history.filter(h=>h.kind==='completed'&&h.time.startsWith(today)).length} 次今日完成`;
-for(const event of data.events){const off=(data.schedule?.enabled&&!data.schedule.active)||(event.scope==='work'&&!data.on_duty);const state=off?'已下班':event.state==='paused'?'已暂停':event.state==='snoozed'?'稍后提醒':event.pending?'待完成':event.state==='idle'?'未开始':'进行中';const card=eventNode('article','event-card');card.dataset.event=event.id;const top=eventNode('div','event-card-top');top.append(eventNode('h4','',event.name),eventNode('span','event-badge'+(event.pending&&!off?' pending':state==='进行中'?' running':''),state));card.append(top,eventNode('p','event-meta',`${modes[event.mode]} · ${event.scope==='work'?'上班期间':'全天'}`));const caption=off?'下次上班后重新计时':event.pending?'完成后请确认':event.state==='paused'?'暂停时保留剩余时间':event.state==='idle'?`${event.seconds/60} 分钟 / 每轮`:'距离下次提醒';const seconds=event.state==='paused'?event.remaining:event.due?Math.max(0,event.due-Date.now()/1000):event.seconds;card.append(eventNode('div','event-clock'+(event.pending||off?' caption':''),off?'下班休息':event.pending?'等待完成':fmtDuration(Math.ceil(seconds))),eventNode('p','event-clock-label',caption));const entries=data.history.filter(h=>h.event_id===event.id&&h.time.startsWith(today));const metrics=eventNode('div','event-metrics');for(const [kind,label]of [['reminders','提醒总计'],['followup','追提醒'],['completed','已完成']]){const metric=eventNode('div');metric.append(eventNode('strong','',String(entries.filter(h=>kind==='reminders'?['due','followup','legacy_reminder'].includes(h.kind):h.kind===kind).length)),eventNode('span','',label));metrics.append(metric);}card.append(metrics);
-const actions=eventNode('div','event-card-actions');let primary=event.id==='standing'?['站立 1 分钟','focus']:event.pending?['我已完成','complete']:event.state==='paused'?['继续计时','resume']:event.mode==='once'?['全屏专注','focus']:event.state==='idle'?['开始提醒','start']:['记录完成','complete'];const button=eventNode('button','event-button primary',primary[0]);button.type='button';button.disabled=off;button.onclick=()=>eventAction(event,primary[1],button);const edit=eventNode('button','event-button','编辑');edit.type='button';edit.onclick=()=>openEventEditor(event);actions.append(button,edit);const more=eventNode('details','event-more');const summary=eventNode('summary','','···');summary.setAttribute('aria-label',event.name+'的更多操作');const menu=eventNode('div','event-more-menu');for(const [label,action]of [['暂停计时','pause'],['暂停 1 小时','pause1h'],['暂停 2 小时','pause2h'],['稍后提醒','snooze'],['重新开始','start'],['取消本轮','stop'],['删除提醒','delete']]){const secondary=eventNode('button',action==='delete'?'danger':'',label);secondary.type='button';secondary.onclick=()=>{more.open=false;eventAction(event,action,secondary);};menu.append(secondary);}more.append(summary,menu);actions.append(more);card.append(actions);
+for(const event of data.events){const off=(data.schedule?.enabled&&!data.schedule.active)||(event.scope==='work'&&!data.on_duty);const state=off?'已下班':event.state==='presence_paused'?'离座暂停':event.state==='paused'?'已暂停':event.state==='snoozed'?'稍后提醒':event.pending?'待完成':event.state==='idle'?'未开始':'进行中';const card=eventNode('article','event-card');card.dataset.event=event.id;const top=eventNode('div','event-card-top');top.append(eventNode('h4','',event.name),eventNode('span','event-badge'+(event.pending&&!off?' pending':state==='进行中'?' running':''),state));card.append(top,eventNode('p','event-meta',`${modes[event.mode]} · ${event.scope==='work'?'上班期间':'全天'}`));const caption=off?'下次上班后重新计时':event.state==='presence_paused'?'回来后接着剩余时间':event.pending?'完成后请确认':event.state==='paused'?'暂停时保留剩余时间':event.state==='idle'?`${event.seconds/60} 分钟 / 每轮`:'距离下次提醒';const seconds=event.state==='presence_paused'?(event._presence_remaining||0):event.state==='paused'?event.remaining:event.due?Math.max(0,event.due-Date.now()/1000):event.seconds;card.append(eventNode('div','event-clock'+(event.pending||off?' caption':''),off?'下班休息':event.pending&&event.state!=='presence_paused'?'等待完成':fmtDuration(Math.ceil(seconds))),eventNode('p','event-clock-label',caption));const entries=data.history.filter(h=>h.event_id===event.id&&h.time.startsWith(today));const metrics=eventNode('div','event-metrics');for(const [kind,label]of [['reminders','提醒总计'],['followup','追提醒'],['completed','已完成']]){const metric=eventNode('div');metric.append(eventNode('strong','',String(entries.filter(h=>kind==='reminders'?['due','followup','legacy_reminder'].includes(h.kind):h.kind===kind).length)),eventNode('span','',label));metrics.append(metric);}card.append(metrics);
+const actions=eventNode('div','event-card-actions');let primary=event.id==='standing'?['站立 1 分钟','focus']:event.pending?['我已完成','complete']:event.state==='paused'?['继续计时','resume']:event.mode==='once'?['全屏专注','focus']:event.state==='idle'?['开始提醒','start']:['记录完成','complete'];const button=eventNode('button','event-button primary',primary[0]);button.type='button';button.disabled=off||(event.state==='presence_paused'&&event.id!=='standing');button.onclick=()=>eventAction(event,primary[1],button);const edit=eventNode('button','event-button','编辑');edit.type='button';edit.onclick=()=>openEventEditor(event);actions.append(button,edit);const more=eventNode('details','event-more');const summary=eventNode('summary','','···');summary.setAttribute('aria-label',event.name+'的更多操作');const menu=eventNode('div','event-more-menu');for(const [label,action]of [['暂停计时','pause'],['暂停 1 小时','pause1h'],['暂停 2 小时','pause2h'],['稍后提醒','snooze'],['重新开始','start'],['取消本轮','stop'],['删除提醒','delete']]){const secondary=eventNode('button',action==='delete'?'danger':'',label);secondary.type='button';secondary.onclick=()=>{more.open=false;eventAction(event,action,secondary);};menu.append(secondary);}more.append(summary,menu);actions.append(more);card.append(actions);
 const recent=eventNode('button','event-history-link','查看最近 7 天记录 →');recent.type='button';recent.dataset.event=event.id;recent.onclick=()=>openEventHistory(event);card.append(recent);fragment.append(card);}
 if(!data.events.length)fragment.append(eventNode('div','event-empty','还没有提醒。新建一个，安排你的第一件小事。'));list.replaceChildren(fragment);
 }catch(error){eventFeedback(error.message);}}
@@ -2817,6 +2842,48 @@ moduleSections.forEach(section => { if (section) moduleLayoutObserver.observe(se
 scheduleModuleNavigation();
 document.addEventListener('click',event=>{if(!event.target.closest('.event-more'))document.querySelectorAll('.event-more[open]').forEach(menu=>menu.open=false);});
 loadEvents();setInterval(()=>{if(!document.hidden)loadEvents();},5000);
+let cameraSettingsDirty=false;
+let cameraSaving=false;
+document.getElementById('cameraForm').addEventListener('input',()=>cameraSettingsDirty=true);
+async function cameraRequest(path,payload={}) {
+  const response=await fetch('/api/camera/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const data=await response.json();if(!response.ok)throw Error(data.error||'摄像头操作失败');return data;
+}
+async function loadCamera() {
+  try {
+    const response=await fetch('/api/camera');if(!response.ok)throw Error('暂时无法读取摄像头状态');
+    const data=await response.json(),settings=data.settings||{};
+    const statuses={disabled:'未开启',starting:'正在启动',awaiting_permission:'等待系统授权',running:'检测中',outside_hours:'休息时段，已关闭',denied:'未获得摄像头权限',error:'摄像头不可用'};
+    document.getElementById('cameraState').textContent=statuses[data.status]||'连接中';
+    const qualities={warming:'正在准备检测…',calibrating:'正在校准，请自然睁眼面对摄像头约 5 秒。',tracking:'已校准，正在统计。',low_fps:'画面帧率不足，暂不判断眨眼频率；离座检测仍有效。',multiple_faces:'多人入镜，暂不统计眨眼。',eyes_unreliable:'检测到人在画面中，但眼部不清晰；请调整角度或光线。',no_person:'暂未检测到人，请确认摄像头能够看到座位。',unavailable:'暂时没有有效画面，自动暂停不会生效。'};
+    document.getElementById('cameraQuality').textContent=(data.device?data.device+' · ':'')+(data.status==='running'?qualities[data.quality]||'':'');
+    document.getElementById('cameraError').textContent=data.error||'';
+    document.getElementById('cameraRate').textContent=!settings.camera_blink_enabled?'未开启':data.blink_rate===null?'观察中':`${data.blink_rate} 次/分钟`;
+    document.getElementById('cameraRateHelp').textContent=data.blink_rate===null?`有效观察 ${Math.round(data.observed_seconds||0)} / 50 秒 · 今日记录 ${data.today_blinks||0} 次眨眼`:`${data.below_target?'低于设定目标':'已达到设定目标'} ${data.target} 次/分钟 · 今日 ${data.today_blinks} 次`;
+    document.getElementById('cameraPresence').textContent=data.presence==='present'?'在座':data.presence==='away'?'可能离座':'正在确认';
+    document.getElementById('cameraPresenceHelp').textContent=!settings.camera_away_enabled?'离座自动暂停未开启':data.presence==='away'?'活动已自动暂停，回座后继续':'离座 '+(settings.camera_away_seconds||10)+' 秒确认，回座约 2 秒恢复';
+    if(!cameraSettingsDirty&&!cameraSaving) {
+      document.getElementById('cameraBlink').checked=Boolean(settings.camera_blink_enabled);
+      document.getElementById('cameraAway').checked=Boolean(settings.camera_away_enabled);
+      document.getElementById('cameraTarget').value=settings.camera_blink_target||12;
+      document.getElementById('cameraAwayDelay').value=settings.camera_away_seconds||10;
+      const select=document.getElementById('cameraDevice'),id=settings.camera_device_id||'';
+      if(id&&!Array.from(select.options).some(option=>option.value===id)){const option=document.createElement('option');option.value=id;option.textContent=data.device||'已选择的摄像头';select.append(option);}
+      select.value=id;
+    }
+  }catch(error){document.getElementById('cameraError').textContent=error.message;}
+}
+document.getElementById('cameraForm').onsubmit=async event=>{
+  event.preventDefault();cameraSaving=true;const button=document.getElementById('cameraSave');button.disabled=true;
+  try{await cameraRequest('config',{camera_blink_enabled:document.getElementById('cameraBlink').checked,camera_away_enabled:document.getElementById('cameraAway').checked,camera_blink_target:Number(document.getElementById('cameraTarget').value),camera_away_seconds:Number(document.getElementById('cameraAwayDelay').value),camera_device_id:document.getElementById('cameraDevice').value});cameraSettingsDirty=false;cameraSaving=false;await loadCamera();}
+  catch(error){document.getElementById('cameraError').textContent=error.message;}
+  finally{cameraSaving=false;button.disabled=false;}
+};
+document.getElementById('cameraCalibrate').onclick=async()=>{try{await cameraRequest('recalibrate');await loadCamera();}catch(error){document.getElementById('cameraError').textContent=error.message;}};
+if(location.hash === '#cameraPanel') document.getElementById('cameraPanel').open = true;
+window.addEventListener('hashchange',()=>{if(location.hash === '#cameraPanel') document.getElementById('cameraPanel').open = true;});
+document.getElementById('cameraDevices').onclick=async()=>{const button=document.getElementById('cameraDevices');button.disabled=true;try{const data=await cameraRequest('devices');const select=document.getElementById('cameraDevice'),selected=select.value;select.replaceChildren();const fallback=document.createElement('option');fallback.value='';fallback.textContent='系统默认摄像头';select.append(fallback);for(const device of data.devices){const option=document.createElement('option');option.value=device.id;option.textContent=device.name;select.append(option);}select.value=selected;await loadCamera();}catch(error){document.getElementById('cameraError').textContent=error.message;}finally{button.disabled=false;}};
+loadCamera();setInterval(()=>{if(!document.hidden)loadCamera();},2000);
 
 </script>
 </body>

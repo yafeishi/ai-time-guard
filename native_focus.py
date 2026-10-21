@@ -156,6 +156,14 @@ class FocusController(NSObject):
             if self.finished or self.confirming:
                 self.clock.setStringValue_('完成' if self.finished else '时间到')
                 return
+            if self.event['state'] == 'presence_paused':
+                remaining = self.event.get('_presence_remaining') or 0
+                n = int(remaining + .999)
+                self.clock.setStringValue_(f'{n//60:02d}:{n%60:02d}')
+                self.status.setHidden_(False)
+                self.status.setStringValue_('离座，已暂停；回来后自动继续')
+                return
+            self.status.setHidden_(True)
             seconds = max(0, self.event.get('standing_until', time.time()) - time.time()) if STANDING_MINUTE else self.event.get('remaining', 0) if self.event['state'] == 'paused' else max(0, (self.event['due'] or time.time())-time.time())
             n = int(seconds + .999)
             self.clock.setStringValue_(f'{n//60:02d}:{n%60:02d}')

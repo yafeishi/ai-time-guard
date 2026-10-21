@@ -13,6 +13,7 @@ AI Time Guard - Mac 菜单栏应用
 """
 
 from event_reminders import EventReminders
+from camera_monitor import CameraService
 
 import rumps
 import psutil
@@ -87,6 +88,11 @@ DEFAULT_CONFIG = {
     "stand_up_pause_hours": 0,
     "work_on_duty": True,
     "event_schedule_enabled": False,
+    "camera_blink_enabled": False,
+    "camera_away_enabled": False,
+    "camera_blink_target": 12,
+    "camera_away_seconds": 10,
+    "camera_device_id": "",
     "stand_up_title_mode": "final5",  # 菜单栏显示方式：final5 | always
     "countdown_duration_seconds": 180,# 菜单内倒计时时长（秒），记住用户上次选择
 }
@@ -136,6 +142,8 @@ _CONFIG_NUMERIC_RANGES = {
     "check_interval_seconds": (2, 3600),
     "stand_up_interval_minutes": (1, 24 * 60),
     "countdown_duration_seconds": (60, 12 * 3600),
+    "camera_blink_target": (5, 40),
+    "camera_away_seconds": (3, 120),
 }
 
 
@@ -929,6 +937,12 @@ class ReportHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         global _app_instance
+        if urlparse(self.path).path == '/api/camera':
+            if _app_instance and hasattr(_app_instance, 'camera'):
+                self.send_json_response(_app_instance.camera.snapshot())
+            else:
+                self.send_json_response({'error': '应用未运行'}, status=503)
+            return
         if urlparse(self.path).path == '/api/events':
             if _app_instance and hasattr(_app_instance, 'events'):
                 self.send_json_response({**_app_instance.events.snapshot(), 'on_duty': _app_instance.config.get('work_on_duty', True)})
@@ -1151,6 +1165,30 @@ class ReportHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         global _app_instance
+        if self.path in ('/api/camera/config', '/api/camera/recalibrate', '/api/camera/devices'):
+            try:
+                if not _app_instance or not hasattr(_app_instance, 'camera'):
+                    raise ValueError('应用未运行')
+                if self.path == '/api/camera/recalibrate':
+                    _app_instance.camera.recalibrate()
+                    self.send_json_response({'success': True})
+                    return
+                if self.path == '/api/camera/devices':
+                    self.send_json_response({'devices': _app_instance.camera.list_devices()})
+                    return
+                size = int(self.headers.get('Content-Length', 0))
+                if not 0 < size <= 16384:
+                    raise ValueError('配置大小无效')
+                payload = json.loads(self.rfile.read(size))
+                if not isinstance(payload, dict) or any(not key.startswith('camera_') for key in payload):
+                    raise ValueError('只能修改摄像头设置')
+                update = sanitize_config_update(payload)
+                _app_instance.config.update(update)
+                save_config(_app_instance.config)
+                self.send_json_response({'success': True})
+            except Exception as exc:
+                self.send_json_response({'error': str(exc)}, status=400)
+            return
         if self.path == '/api/events':
             try:
                 if not _app_instance or not hasattr(_app_instance, 'events'):
@@ -1755,6 +1793,7 @@ class AITimeGuardApp(rumps.App):
         self.quit_item = rumps.MenuItem("退出", callback=self.quit_app)
 
         self.events = EventReminders(CONFIG_DIR / 'events.json', self.config)
+        self.camera = CameraService(CONFIG_DIR, APP_DIR)
         self.events_menu = rumps.MenuItem("⏱ 事件提醒")
         self.events_menu_dirty = True
         self.refresh_event_menu()
@@ -1767,9 +1806,10 @@ class AITimeGuardApp(rumps.App):
                      self.periodic_menu, self.periodic_enabled_item, self.strict_item,
                      self.reset_item, self.history_item]:
             self.ai_menu.add(item)
+        self.build_camera_menu()
         self.event_section_item = rumps.MenuItem("⏱ 事件提醒")
         self.event_manage_item = rumps.MenuItem("设置…", callback=self.open_report)
-        self.menu = [*self.event_root_items, rumps.separator, self.work_shift_item,
+        self.menu = [*self.event_root_items, self.camera_menu, rumps.separator, self.work_shift_item,
                      self.event_manage_item, self.quit_item]
         self.event_root_installed = True
 
@@ -1778,6 +1818,105 @@ class AITimeGuardApp(rumps.App):
         # 启动定时检测
         self.timer = rumps.Timer(self.on_tick, self.config["check_interval_seconds"])
         self.timer.start()
+
+    def build_camera_menu(self):
+        self.camera_menu = rumps.MenuItem("眨眼检测 · 未开启")
+        self.camera_status_item = rumps.MenuItem("检测状态：未开启")
+        self.camera_rate_item = rumps.MenuItem("近期频率：等待有效画面")
+        self.camera_today_item = rumps.MenuItem("今日：0 次 · 有效检测 0 分钟")
+        self.camera_week_item = rumps.MenuItem("近 7 天：0 次")
+        self.camera_presence_item = rumps.MenuItem("在座状态：未知")
+        self.camera_blink_item = rumps.MenuItem("启用眨眼检测", callback=self.toggle_camera_setting)
+        self.camera_blink_item._camera_key = 'camera_blink_enabled'
+        self.camera_away_item = rumps.MenuItem("离座自动暂停活动", callback=self.toggle_camera_setting)
+        self.camera_away_item._camera_key = 'camera_away_enabled'
+        target_menu = rumps.MenuItem("目标眨眼频率")
+        self.camera_target_items = []
+        for target in (8, 10, 12, 15, 20):
+            item = rumps.MenuItem(f"{target} 次／分钟", callback=self.set_camera_value)
+            item._camera_key, item._camera_value = 'camera_blink_target', target
+            target_menu.add(item)
+            self.camera_target_items.append(item)
+        delay_menu = rumps.MenuItem("离座确认时间")
+        self.camera_delay_items = []
+        for seconds in (5, 10, 20, 30, 60):
+            item = rumps.MenuItem(f"连续 {seconds} 秒未检测到人", callback=self.set_camera_value)
+            item._camera_key, item._camera_value = 'camera_away_seconds', seconds
+            delay_menu.add(item)
+            self.camera_delay_items.append(item)
+        for item in [self.camera_status_item, self.camera_rate_item, self.camera_today_item,
+                     self.camera_week_item, self.camera_presence_item, rumps.separator,
+                     self.camera_blink_item, self.camera_away_item, target_menu, delay_menu,
+                     rumps.MenuItem("重新校准", callback=self.recalibrate_camera),
+                     rumps.MenuItem("详细设置与统计…", callback=self.open_camera_settings)]:
+            self.camera_menu.add(item)
+        self.update_camera_menu(self.camera.snapshot())
+
+    def toggle_camera_setting(self, sender):
+        key = sender._camera_key
+        self.config[key] = not self.config.get(key, False)
+        save_config(self.config)
+        sender.state = self.config[key]
+
+    def set_camera_value(self, sender):
+        self.config[sender._camera_key] = sender._camera_value
+        save_config(self.config)
+        self.update_camera_menu(self.camera.snapshot())
+
+    def recalibrate_camera(self, _):
+        self.camera.recalibrate()
+        self.update_camera_menu(self.camera.snapshot())
+
+    def open_camera_settings(self, _):
+        webbrowser.open(f"http://127.0.0.1:{REPORT_PORT}/#cameraPanel")
+
+    def update_camera_menu(self, state):
+        if not hasattr(self, 'camera_menu'):
+            return
+        statuses = {'disabled': '未开启', 'starting': '正在启动', 'awaiting_permission': '等待系统授权',
+                    'running': '检测中', 'outside_hours': '休息时段', 'denied': '未获摄像头权限', 'error': '摄像头不可用'}
+        qualities = {'warming': '正在准备', 'calibrating': '正在校准', 'low_fps': '帧率不足',
+                     'multiple_faces': '多人入镜', 'eyes_unreliable': '眼部不清晰',
+                     'no_person': '未检测到人', 'unavailable': '等待有效画面'}
+        status = statuses.get(state['status'], '等待检测')
+        blink_enabled = self.config.get('camera_blink_enabled', False)
+        if state['status'] == 'running':
+            status = qualities.get(state['quality'], '检测中') if blink_enabled else '仅检测离座'
+        rate = state.get('blink_rate') if blink_enabled and state['status'] == 'running' else None
+        target = self.config.get('camera_blink_target', 12)
+        self.camera_menu.title = f"眨眼 · {rate:g} 次/分" if rate is not None else f"眨眼检测 · {status}"
+        self.camera_status_item.title = '检测状态：' + status
+        result = '低于目标' if rate is not None and rate < target else '达到目标'
+        detail = f"{rate:g} 次/分（{result}）" if rate is not None else '等待有效检测满约一分钟' if blink_enabled else '未开启眨眼检测'
+        self.camera_rate_item.title = f"近期：{detail} · 目标 {target} 次/分"
+        self.camera_today_item.title = f"今日：{state['today_blinks']} 次 · 有效检测 {state['today_observed_seconds']/60:.1f} 分钟"
+        today = date.today()
+        days = {str(today-timedelta(days=index)) for index in range(7)}
+        total = state['today_blinks'] + sum(value.get('blinks', 0) for day, value in state.get('history', {}).items()
+                                              if day in days and day != str(today))
+        self.camera_week_item.title = f"近 7 天：{total} 次（有效画面内检测）"
+        presence = {'present': '在座', 'away': '离座', 'unknown': '未知'}.get(state['presence'], '未知')
+        self.camera_presence_item.title = '在座状态：' + presence
+        self.camera_blink_item.state = blink_enabled
+        self.camera_away_item.state = self.config.get('camera_away_enabled', False)
+        for item in self.camera_target_items + self.camera_delay_items:
+            item.state = self.config.get(item._camera_key) == item._camera_value
+
+    def show_blink_reminder(self, allowed=True):
+        if getattr(self, '_blink_alert_open', False):
+            return
+        state = self.camera.take_blink_reminder(allowed=allowed and self.config.get('work_on_duty', True)
+                                                and time.time() >= getattr(self, 'focus_until', 0))
+        if state is None:
+            return
+        self._blink_alert_open = True
+        try:
+            self.show_modal_alert('眨眼提醒',
+                f"近期眨眼频率约 {state['blink_rate']:g} 次／分钟，低于你设置的 {state['target']} 次／分钟。\n请停一下，自然、轻柔地眨几次眼，放松一下。",
+                ok='知道了')
+        finally:
+            self.camera.blink_reminder_dismissed()
+            self._blink_alert_open = False
 
     def perform_event_action(self, event_id, action):
         try:
@@ -1852,6 +1991,15 @@ class AITimeGuardApp(rumps.App):
                 self.stand_up_enabled = active
                 save_config(self.config)
                 self.update_stand_up_menu_title()
+        if hasattr(self, 'camera'):
+            allowed = self.config.get('work_on_duty', True)
+            self.camera.configure(self.config, allowed=allowed)
+            camera_state = self.camera.snapshot()
+            self.update_camera_menu(camera_state)
+            present = None
+            if self.config.get('camera_away_enabled') and camera_state['status'] == 'running':
+                present = True if camera_state['presence'] == 'present' else False if camera_state['presence'] == 'away' else None
+            self.events.sync_presence(present)
         request = getattr(self, 'native_focus_request', None)
         if request:
             self.native_focus_request = None
@@ -1889,7 +2037,9 @@ class AITimeGuardApp(rumps.App):
             item = self.event_menu_items.get(event['id'])
             if item is None:
                 continue
-            if event['state'] == 'scheduled_pause':
+            if event['state'] == 'presence_paused':
+                status = '离座 · 已暂停'
+            elif event['state'] == 'scheduled_pause':
                 status = '休息时段 · 已暂停'
             elif event['scope'] == 'work' and not on_duty:
                 status = '已下班'
@@ -1917,6 +2067,8 @@ class AITimeGuardApp(rumps.App):
                     item.set_callback(primary)
                 else:
                     item.set_callback(None)
+        if hasattr(self, 'camera'):
+            self.show_blink_reminder(allowed=not focusing and not modal)
         self.update_title()
 
     def update_title(self):
@@ -2159,6 +2311,8 @@ class AITimeGuardApp(rumps.App):
             self.send_notification(title, message)
 
     def show_periodic_alert(self):
+        if hasattr(self, 'camera') and self.config.get('camera_away_enabled') and self.camera.snapshot()['presence'] == 'away':
+            return
         """显示阻塞式弹窗，用户必须手动关闭"""
         today_min = self.today_seconds / 60
         limit_min = self.config["daily_limit_minutes"]
@@ -2790,6 +2944,8 @@ class AITimeGuardApp(rumps.App):
             )
 
     def quit_app(self, _):
+        if hasattr(self, "camera"):
+            self.camera.stop()
         if hasattr(self, "events_timer"):
             self.events_timer.stop()
         # 保存数据

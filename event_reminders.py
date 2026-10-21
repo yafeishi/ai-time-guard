@@ -58,7 +58,7 @@ class EventReminders:
             for event in self.data['events']:
                 if (not active or crossed_session) and event['state'] not in ('idle', 'scheduled_pause'):
                     event['_schedule_state'] = event['state']
-                    event['_schedule_remaining'] = max(0, (event.get('due') or now) - now)
+                    event['_schedule_remaining'] = event.get('_presence_remaining') if event['state'] == 'presence_paused' else max(0, (event.get('due') or now) - now)
                     event['state'] = 'scheduled_pause'
                     event.pop('standing_until', None)
                     changed = True
@@ -76,6 +76,36 @@ class EventReminders:
                                              override_active=old.get('override_active'))
                 self.save()
             return active
+
+    def sync_presence(self, present, now=None):
+        """Freeze only automatically paused events; None means camera unavailable.
+
+        Schedule pauses remain the outer layer. Manual pauses and the standing
+        minute are never resumed or stopped by a presence observation.
+        """
+        now = time.time() if now is None else now
+        with self.lock:
+            changed = False
+            self.data['presence'] = {'state': 'away' if present is False else 'present' if present is True else 'unknown'}
+            for event in self.data['events']:
+                if present is False and event['state'] in ('running', 'waiting', 'snoozed') and not event.get('standing_until'):
+                    event['_presence_state'] = event['state']
+                    event['_presence_remaining'] = max(0, event['due']-now) if event.get('due') is not None else None
+                    event['_presence_anchor_remaining'] = max(0, event.get('anchor', now)-now)
+                    event['state'] = 'presence_paused'
+                    changed = True
+                elif present is not False and event['state'] == 'presence_paused':
+                    self._restore_presence_event(event, now)
+                    changed = True
+            if changed:
+                self.save()
+
+    @staticmethod
+    def _restore_presence_event(event, now):
+        event['state'] = event.pop('_presence_state', 'running')
+        remaining = event.pop('_presence_remaining', None)
+        event['due'] = now+remaining if remaining is not None else None
+        event['anchor'] = now+event.pop('_presence_anchor_remaining', 0)
 
     def override_schedule(self, active, now=None):
         now = time.time() if now is None else now
@@ -164,6 +194,8 @@ class EventReminders:
                 event = next((e for e in self.data['events'] if e['id'] == event_id), None)
                 if event is None:
                     raise ValueError('事件不存在')
+                if event['state'] == 'presence_paused' and action not in ('edit', 'delete'):
+                    self._restore_presence_event(event, now)
                 if action in ('standing_begin', 'standing_finish', 'standing_cancel'):
                     if event_id != 'standing':
                         raise ValueError('此操作仅用于站立活动')
