@@ -60,3 +60,7 @@
 - [`camera_monitor.py`](../camera_monitor.py)：个人校准、双阈值计数、有效检测时长、频率和本机组件管理。
 - [`blink_history.py`](../blink_history.py)：分钟明细的本机存储和查询。
 - [`blink_comparison.py`](../blink_comparison.py)：同步倒计时测试窗口及人工／机器计数对照。
+
+## 离座检测与身份验证
+
+人脸／上半身检测只表示有人在画面中，不识别这个人是谁。安全锁屏模式下，摄像头不能解锁电脑，必须先完成 macOS 本账号认证，再由在座状态决定恢复活动计时。锁定期间摄像头关闭。

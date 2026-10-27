@@ -1087,8 +1087,12 @@
     <div class="camera-options">
       <label class="camera-choice"><input type="checkbox" id="cameraBlink"><span>眨眼检测<small>频率低于设定目标时弹窗提醒，关闭后至少间隔 5 分钟。</small></span></label>
       <label class="camera-choice"><input type="checkbox" id="cameraAway"><span>离座自动暂停<small>暂停运行中的活动，保留剩余时间；手动暂停不会自动恢复。</small></span></label>
-      <label class="camera-choice"><input type="checkbox" id="cameraAwayFullscreen"><span>离座全屏画面<small>离座自动暂停时显示，回座后关闭；Esc 可退出画面。</small></span></label>
     </div>
+    <div class="camera-fields" style="margin-bottom:16px">
+      <label for="cameraAwayMode">离座后的屏幕行为<select id="cameraAwayMode"><option value="lock">系统安全锁屏（推荐）</option><option value="fullscreen">全屏休息展示</option><option value="none">仅暂停活动</option></select></label>
+    </div>
+    <p class="editor-help">安全锁屏需同时开启「离座自动暂停」：确认离座后使用 macOS 系统锁屏，回座需通过 Mac 本身的认证。有人经过或按 Esc 不会解锁。锁屏期间关闭摄像头；本账号解锁并重新确认在座后恢复活动。全屏休息展示仅用于提示，可按 Esc 退出，不提供桌面保护。</p>
+    <p class="editor-help" id="cameraSecurityStatus" role="status"></p>
     <div class="camera-fields">
       <label for="cameraTarget">眨眼提醒目标<div class="input-unit"><input type="number" min="5" max="40" value="12" id="cameraTarget"><span>次/分钟</span></div></label>
       <label for="cameraAwayDelay">离座确认时间<div class="input-unit"><input type="number" min="3" max="120" value="10" id="cameraAwayDelay"><span>秒</span></div></label>
@@ -1097,7 +1101,7 @@
     <div class="camera-actions"><button type="submit" class="event-button primary" id="cameraSave">应用设置</button><button type="button" class="event-button" id="cameraCalibrate">重新校准</button><button type="button" class="event-button" id="cameraDevices">刷新摄像头列表</button></div>
   </form>
   <p class="editor-help">首次启用请在 macOS 弹窗中允许 AI Time Guard Camera 使用摄像头。校准时自然睁眼面对摄像头约 5 秒。眼镜、光线和角度会影响检测；多人入镜时不统计眨眼，摄像头故障不会被当成离座。回座确认约 2 秒。</p>
-  <p class="editor-help">站立的一分钟不受离座暂停影响；工作时段外会关闭摄像头。这里只提示频率是否达到你设置的目标，不判断医学标准或眨眼是否完全闭合。</p>
+  <p class="editor-help">站立的一分钟不受普通离座暂停影响；安全锁屏优先于专注展示。工作时段外会关闭摄像头。这里只提示频率是否达到你设置的目标，不判断医学标准或眨眼是否完全闭合。</p>
   <details class="historical-events" id="blinkDetectionHelp">
     <summary>眨眼是怎么检测的？</summary>
     <div class="editor-help">
@@ -2952,13 +2956,15 @@ async function loadCamera() {
     const nextTest=data.comparison;
     if(!blinkComparisonBusy&&nextTest&&(!blinkComparison||nextTest.start_at>blinkComparison.start_at||(nextTest.start_at===blinkComparison.start_at&&!(blinkComparison.machine_count!==null&&nextTest.machine_count===null))))blinkComparison=nextTest;
     renderBlinkComparison();
-    const statuses={disabled:'未开启',starting:'正在启动',awaiting_permission:'等待系统授权',running:'检测中',outside_hours:'休息时段，已关闭',denied:'未获得摄像头权限',error:'摄像头不可用'};
+    const statuses={disabled:'未开启',starting:'正在启动',awaiting_permission:'等待系统授权',running:'检测中',outside_hours:'休息时段，已关闭',system_locked:'系统锁定／等待确认解锁',denied:'未获得摄像头权限',error:'摄像头不可用'};
     document.getElementById('cameraState').textContent=statuses[data.status]||'连接中';
     const qualities={warming:'正在准备检测…',calibrating:'正在校准，请自然睁眼面对摄像头约 5 秒。',tracking:'已校准，正在统计。',low_fps:'画面帧率不足，暂不判断眨眼频率；离座检测仍有效。',multiple_faces:'多人入镜，暂不统计眨眼。',eyes_unreliable:'检测到人在画面中，但眼部不清晰；请调整角度或光线。',no_person:'暂未检测到人，请确认摄像头能够看到座位。',unavailable:'暂时没有有效画面，自动暂停不会生效。'};
     document.getElementById('cameraQuality').textContent=(data.device?data.device+' · ':'')+(data.status==='running'?qualities[data.quality]||'':'');
     const eyePhases={open:'睁眼',closed:'检测到闭眼',unknown:'眼部暂不可用'};
     const lastBlink=data.last_blink_at?new Date(data.last_blink_at*1000).toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}):'暂无';
     document.getElementById('cameraLiveTest').textContent=settings.camera_blink_enabled&&data.status==='running'?`即时测试：本次校准后识别 ${data.session_blinks||0} 次 · 最近识别 ${lastBlink} · ${eyePhases[data.eye_phase]||'正在校准'} · ${data.fps??'—'} 帧/秒${data.eye_ratio==null?'':` · 开合比例 ${data.eye_ratio}（近期最低 ${data.recent_min_ratio}）`}`:'';
+    const security=data.security||{},secure=settings.camera_away_system_lock&&settings.camera_away_enabled;
+    document.getElementById('cameraSecurityStatus').textContent=security.error?security.error:secure?(security.pending||security.session==='locked'?'系统锁屏中，活动计时保持暂停，等待本账号认证解锁。':security.session==='unknown'?'无法确认系统会话状态，活动计时保持暂停。':'安全锁屏已开启'+(security.last_away_seconds!=null?` · 上次锁定约 ${Math.floor(security.last_away_seconds/60)} 分 ${security.last_away_seconds%60} 秒`:'')):'';
     document.getElementById('cameraError').textContent=data.error||'';
     document.getElementById('cameraRate').textContent=!settings.camera_blink_enabled?'未开启':data.blink_rate===null?'观察中':`${data.blink_rate} 次/分钟`;
     document.getElementById('cameraRateHelp').textContent=data.blink_rate===null?`有效观察 ${Math.round(data.observed_seconds||0)} / 50 秒 · 今日记录 ${data.today_blinks||0} 次眨眼`:`${data.below_target?'低于设定目标':'已达到设定目标'} ${data.target} 次/分钟 · 今日 ${data.today_blinks} 次`;
@@ -2967,7 +2973,7 @@ async function loadCamera() {
     if(!cameraSettingsDirty&&!cameraSaving) {
       document.getElementById('cameraBlink').checked=Boolean(settings.camera_blink_enabled);
       document.getElementById('cameraAway').checked=Boolean(settings.camera_away_enabled);
-      document.getElementById('cameraAwayFullscreen').checked=settings.camera_away_fullscreen!==false;
+      document.getElementById('cameraAwayMode').value=settings.camera_away_system_lock?'lock':settings.camera_away_fullscreen!==false?'fullscreen':'none';
       document.getElementById('cameraTarget').value=settings.camera_blink_target||12;
       document.getElementById('cameraAwayDelay').value=settings.camera_away_seconds||10;
       const select=document.getElementById('cameraDevice'),id=settings.camera_device_id||'';
@@ -2978,7 +2984,7 @@ async function loadCamera() {
 }
 document.getElementById('cameraForm').onsubmit=async event=>{
   event.preventDefault();cameraSaving=true;const button=document.getElementById('cameraSave');button.disabled=true;
-  try{await cameraRequest('config',{camera_blink_enabled:document.getElementById('cameraBlink').checked,camera_away_enabled:document.getElementById('cameraAway').checked,camera_away_fullscreen:document.getElementById('cameraAwayFullscreen').checked,camera_blink_target:Number(document.getElementById('cameraTarget').value),camera_away_seconds:Number(document.getElementById('cameraAwayDelay').value),camera_device_id:document.getElementById('cameraDevice').value});cameraSettingsDirty=false;cameraSaving=false;await loadCamera();}
+  try{await cameraRequest('config',{camera_blink_enabled:document.getElementById('cameraBlink').checked,camera_away_enabled:document.getElementById('cameraAway').checked,camera_away_fullscreen:document.getElementById('cameraAwayMode').value==='fullscreen',camera_away_system_lock:document.getElementById('cameraAwayMode').value==='lock',camera_blink_target:Number(document.getElementById('cameraTarget').value),camera_away_seconds:Number(document.getElementById('cameraAwayDelay').value),camera_device_id:document.getElementById('cameraDevice').value});cameraSettingsDirty=false;cameraSaving=false;await loadCamera();}
   catch(error){document.getElementById('cameraError').textContent=error.message;}
   finally{cameraSaving=false;button.disabled=false;}
 };

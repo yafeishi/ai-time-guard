@@ -70,3 +70,11 @@ class CameraMenuTests(unittest.TestCase):
         self.app.show_blink_reminder()
         self.app.camera.take_blink_reminder.assert_called_with(allowed=False)
         self.app.show_modal_alert.assert_called_once()
+
+    def test_away_screen_modes_are_mutually_exclusive(self):
+        self.app.secure_lock = types.SimpleNamespace(session=types.SimpleNamespace(error=''), snapshot=lambda: {})
+        for item in self.app.camera_away_mode_items:
+            self.app.set_away_screen_mode(item)
+            self.assertEqual(self.app.config['camera_away_system_lock'], item._away_mode == 'lock')
+            self.assertEqual(self.app.config['camera_away_fullscreen'], item._away_mode == 'fullscreen')
+            self.assertEqual(sum(bool(choice.state) for choice in self.app.camera_away_mode_items), 1)

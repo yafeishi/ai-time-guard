@@ -15,6 +15,7 @@ AI Time Guard - Mac 菜单栏应用
 from event_reminders import EventReminders
 from camera_monitor import CameraService
 from away_screen import AwayScreenSession
+from system_lock import SecureAwayLock
 
 import rumps
 import psutil
@@ -92,6 +93,7 @@ DEFAULT_CONFIG = {
     "camera_blink_enabled": False,
     "camera_away_enabled": False,
     "camera_away_fullscreen": True,
+    "camera_away_system_lock": False,
     "camera_blink_target": 12,
     "camera_away_seconds": 10,
     "camera_device_id": "",
@@ -957,7 +959,12 @@ class ReportHandler(SimpleHTTPRequestHandler):
             return
         if urlparse(self.path).path == '/api/camera':
             if _app_instance and hasattr(_app_instance, 'camera'):
-                self.send_json_response(_app_instance.camera.snapshot())
+                state = _app_instance.camera.snapshot()
+                if hasattr(_app_instance, 'secure_lock'):
+                    state['security'] = _app_instance.secure_lock.snapshot()
+                    if _app_instance.secure_lock.blocking and (_app_instance.config.get('camera_away_system_lock') or _app_instance.secure_lock.pending or _app_instance.secure_lock.lock_seen):
+                        state['status'] = 'system_locked'
+                self.send_json_response(state)
             else:
                 self.send_json_response({'error': '应用未运行'}, status=503)
             return
@@ -1220,6 +1227,8 @@ class ReportHandler(SimpleHTTPRequestHandler):
                 if not isinstance(payload, dict) or any(not key.startswith('camera_') for key in payload):
                     raise ValueError('只能修改摄像头设置')
                 update = sanitize_config_update(payload)
+                if update.get('camera_away_system_lock') and hasattr(_app_instance, 'secure_lock') and _app_instance.secure_lock.session.error:
+                    raise ValueError(_app_instance.secure_lock.session.error)
                 _app_instance.config.update(update)
                 save_config(_app_instance.config)
                 self.send_json_response({'success': True})
@@ -1832,6 +1841,7 @@ class AITimeGuardApp(rumps.App):
         self.events = EventReminders(CONFIG_DIR / 'events.json', self.config)
         self.camera = CameraService(CONFIG_DIR, APP_DIR)
         self.away_screen = AwayScreenSession(APP_DIR)
+        self.secure_lock = SecureAwayLock()
         self.events_menu = rumps.MenuItem("⏱ 事件提醒")
         self.events_menu_dirty = True
         self.refresh_event_menu()
@@ -1864,12 +1874,18 @@ class AITimeGuardApp(rumps.App):
         self.camera_today_item = rumps.MenuItem("今日：0 次 · 有效检测 0 分钟")
         self.camera_week_item = rumps.MenuItem("近 7 天：0 次")
         self.camera_presence_item = rumps.MenuItem("在座状态：未知")
+        self.camera_security_item = rumps.MenuItem("屏幕保护：全屏休息展示")
         self.camera_blink_item = rumps.MenuItem("启用眨眼检测", callback=self.toggle_camera_setting)
         self.camera_blink_item._camera_key = 'camera_blink_enabled'
         self.camera_away_item = rumps.MenuItem("离座自动暂停活动", callback=self.toggle_camera_setting)
         self.camera_away_item._camera_key = 'camera_away_enabled'
-        self.camera_fullscreen_item = rumps.MenuItem('离座时显示全屏画面', callback=self.toggle_camera_setting)
-        self.camera_fullscreen_item._camera_key = 'camera_away_fullscreen'
+        self.camera_away_mode_menu = rumps.MenuItem('离座后的屏幕行为')
+        self.camera_away_mode_items = []
+        for mode, label in [('lock', '系统安全锁屏'), ('fullscreen', '全屏休息展示'), ('none', '仅暂停活动')]:
+            item = rumps.MenuItem(label, callback=self.set_away_screen_mode)
+            item._away_mode = mode
+            self.camera_away_mode_menu.add(item)
+            self.camera_away_mode_items.append(item)
         target_menu = rumps.MenuItem("目标眨眼频率")
         self.camera_target_items = []
         for target in (8, 10, 12, 15, 20):
@@ -1885,8 +1901,8 @@ class AITimeGuardApp(rumps.App):
             delay_menu.add(item)
             self.camera_delay_items.append(item)
         for item in [self.camera_status_item, self.camera_rate_item, self.camera_today_item,
-                     self.camera_week_item, self.camera_presence_item, rumps.separator,
-                     self.camera_blink_item, self.camera_away_item, self.camera_fullscreen_item, target_menu, delay_menu,
+                     self.camera_week_item, self.camera_presence_item, self.camera_security_item, rumps.separator,
+                     self.camera_blink_item, self.camera_away_item, self.camera_away_mode_menu, target_menu, delay_menu,
                      rumps.MenuItem("重新校准", callback=self.recalibrate_camera),
                      rumps.MenuItem("详细设置与统计…", callback=self.open_camera_settings)]:
             self.camera_menu.add(item)
@@ -1897,6 +1913,15 @@ class AITimeGuardApp(rumps.App):
         self.config[key] = not self.config.get(key, False)
         save_config(self.config)
         sender.state = self.config[key]
+
+    def set_away_screen_mode(self, sender):
+        if sender._away_mode == 'lock' and self.secure_lock.session.error:
+            self.show_modal_alert('无法启用安全锁屏', self.secure_lock.session.error)
+            return
+        self.config['camera_away_system_lock'] = sender._away_mode == 'lock'
+        self.config['camera_away_fullscreen'] = sender._away_mode == 'fullscreen'
+        save_config(self.config)
+        self.update_camera_menu(self.camera.snapshot())
 
     def set_camera_value(self, sender):
         self.config[sender._camera_key] = sender._camera_value
@@ -1914,7 +1939,7 @@ class AITimeGuardApp(rumps.App):
         if not hasattr(self, 'camera_menu'):
             return
         statuses = {'disabled': '未开启', 'starting': '正在启动', 'awaiting_permission': '等待系统授权',
-                    'running': '检测中', 'outside_hours': '休息时段', 'denied': '未获摄像头权限', 'error': '摄像头不可用'}
+                    'running': '检测中', 'system_locked': '安全暂停／等待系统认证', 'outside_hours': '休息时段', 'denied': '未获摄像头权限', 'error': '摄像头不可用'}
         qualities = {'warming': '正在准备', 'calibrating': '正在校准', 'low_fps': '帧率不足',
                      'multiple_faces': '多人入镜', 'eyes_unreliable': '眼部不清晰',
                      'no_person': '未检测到人', 'unavailable': '等待有效画面'}
@@ -1939,7 +1964,12 @@ class AITimeGuardApp(rumps.App):
         self.camera_presence_item.title = '在座状态：' + presence
         self.camera_blink_item.state = blink_enabled
         self.camera_away_item.state = self.config.get('camera_away_enabled', False)
-        self.camera_fullscreen_item.state = self.config.get('camera_away_fullscreen', True)
+        mode = 'lock' if self.config.get('camera_away_system_lock') else 'fullscreen' if self.config.get('camera_away_fullscreen', True) else 'none'
+        for item in self.camera_away_mode_items:
+            item.state = item._away_mode == mode
+        security = self.secure_lock.snapshot() if hasattr(self, 'secure_lock') else {}
+        mode_label = {'lock': '系统安全锁屏', 'fullscreen': '全屏休息展示', 'none': '仅暂停活动'}[mode]
+        self.camera_security_item.title = security.get('error') or ('屏幕保护：' + mode_label)
         for item in self.camera_target_items + self.camera_delay_items:
             item.state = self.config.get(item._camera_key) == item._camera_value
 
@@ -2034,16 +2064,23 @@ class AITimeGuardApp(rumps.App):
                 self.update_stand_up_menu_title()
         if hasattr(self, 'camera'):
             allowed = self.config.get('work_on_duty', True)
-            self.camera.configure(self.config, allowed=allowed)
+            lock_enabled = self.config.get('camera_away_enabled', False) and self.config.get('camera_away_system_lock', False)
+            self.secure_lock.poll()
+            pause_camera = self.secure_lock.blocking and (lock_enabled or self.secure_lock.pending or self.secure_lock.lock_seen)
+            self.camera.configure(self.config, allowed=allowed and not pause_camera)
             camera_state = self.camera.snapshot()
-            self.update_camera_menu(camera_state)
             present = None
             if self.config.get('camera_away_enabled') and camera_state['status'] == 'running':
                 present = True if camera_state['presence'] == 'present' else False if camera_state['presence'] == 'away' else None
-            self.events.sync_presence(present)
+            effective_presence = self.secure_lock.sync(present, enabled=lock_enabled, allowed=allowed)
+            self.events.sync_presence(effective_presence)
+            if pause_camera:
+                camera_state['status'] = 'system_locked'
+            self.update_camera_menu(camera_state)
             focus_process = getattr(self, 'native_focus_process', None)
             focus_running = focus_process is not None and focus_process.poll() is None
-            self.away_screen.sync(away=present is False and allowed and self.config.get('camera_away_fullscreen', True),
+            self.away_screen.sync(away=present is False and allowed and not lock_enabled
+                                  and not self.secure_lock.pending and self.secure_lock.state != 'locked' and self.config.get('camera_away_fullscreen', True),
                                   blocked=focus_running or time.time() < getattr(self, 'focus_until', 0)
                                   or getattr(self, '_blink_alert_open', False))
         request = getattr(self, 'native_focus_request', None)
@@ -2345,7 +2382,7 @@ class AITimeGuardApp(rumps.App):
         进了通知中心（deliveredNotifications 里查得到），但屏幕上不会弹出来。
         模态框不依赖通知授权，是唯一可靠的用户可见提示。
         """
-        if time.time() < getattr(self, "focus_until", 0):
+        if time.time() < getattr(self, "focus_until", 0) or (hasattr(self, "secure_lock") and (self.secure_lock.pending or self.secure_lock.state == "locked" or (self.config.get("camera_away_system_lock") and self.config.get("camera_away_enabled") and self.secure_lock.blocking))):
             return None
         try:
             options = dict(title=title, message=message, ok=ok)
