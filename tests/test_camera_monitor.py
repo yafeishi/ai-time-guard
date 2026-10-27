@@ -21,6 +21,52 @@ class SignalTests(unittest.TestCase):
         self.assertFalse(signals.feed(107.4,1,.32))
         self.assertEqual(signals.total_blinks,1)
 
+    def test_single_closed_frame_at_30fps_is_counted(self):
+        signals=CameraSignals()
+        for index in range(181):signals.feed(100+index/30,1,.32)
+        signals.feed(106.04,1,.18)
+        self.assertTrue(signals.feed(106.074,1,.32))
+        self.assertEqual(signals.snapshot(106.074)['session_blinks'],1)
+
+    def test_separate_eye_baselines_allow_asymmetry_but_reject_winks(self):
+        signals=CameraSignals()
+        for index in range(181):signals.feed(100+index/30,1,.32,eyes=[.24,.40])
+        signals.feed(106.04,1,.13,eyes=[.10,.40])
+        signals.feed(106.08,1,.32,eyes=[.24,.40])
+        self.assertEqual(signals.total_blinks,0)
+        signals.feed(106.12,1,.18,eyes=[.12,.22])
+        self.assertTrue(signals.feed(106.16,1,.32,eyes=[.24,.40]))
+        self.assertEqual(signals.total_blinks,1)
+
+    def test_one_missing_eye_frame_during_closure_does_not_erase_blink(self):
+        signals=CameraSignals();self.calibrate(signals)
+        signals.feed(106.1,1,.16)
+        signals.feed(106.14,1,None)
+        self.assertTrue(signals.feed(106.2,1,.32))
+        self.assertEqual(signals.total_blinks,1)
+
+    def test_missing_landmarks_from_open_eyes_do_not_invent_a_blink(self):
+        signals=CameraSignals();self.calibrate(signals)
+        signals.feed(106.1,1,None)
+        self.assertFalse(signals.feed(106.2,1,.32))
+        self.assertEqual(signals.total_blinks,0)
+
+    def test_small_open_eye_noise_is_not_counted(self):
+        signals=CameraSignals();self.calibrate(signals)
+        for index in range(100):
+            signals.feed(106.1+index*.04,1,.28 if index%2 else .32)
+        self.assertEqual(signals.total_blinks,0)
+
+    def test_relaxed_reopening_does_not_merge_consecutive_blinks(self):
+        signals=CameraSignals();self.calibrate(signals)
+        # Normal open eyes are narrower than during initial calibration.
+        for blink_index in range(6):
+            start=106.1+blink_index*.65
+            for frame in range(4):signals.feed(start+frame*.033,1,.08)
+            for frame in range(4,19):signals.feed(start+frame*.033,1,.25)
+        self.assertEqual(signals.total_blinks,6)
+        self.assertEqual(signals.eye_phase,'open')
+
     def test_brief_face_loss_does_not_pause_or_count_blink(self):
         signals=CameraSignals();self.calibrate(signals)
         signals.feed(106.1,1,.1)

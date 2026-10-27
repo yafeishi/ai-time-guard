@@ -74,7 +74,7 @@ final class CameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         let now = Date().timeIntervalSince1970
-        guard now-lastFrame >= 1.0/15, let pixel = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        guard now-lastFrame >= 1.0/30 - 0.003, let pixel = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         lastFrame = now
         autoreleasepool {
             do {
@@ -103,7 +103,9 @@ final class CameraCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                    let l = eyeOpening(left, face: face, width: CVPixelBufferGetWidth(pixel), height: CVPixelBufferGetHeight(pixel)),
                    let r = eyeOpening(right, face: face, width: CVPixelBufferGetWidth(pixel), height: CVPixelBufferGetHeight(pixel)) {
                     // Both eyes need to close; a single wink is not a full blink.
-                    data["opening"] = max(l, r)
+                    data["opening"] = (l+r)/2
+                    data["left_opening"] = l
+                    data["right_opening"] = r
                 }
                 emit(data)
             } catch {

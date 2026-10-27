@@ -1,4 +1,6 @@
 """Camera signal processing and native capture lifecycle. No images enter Python."""
+from blink_history import BlinkHistory
+from blink_comparison import BlinkComparison
 from collections import deque
 from datetime import datetime
 import hashlib
@@ -30,6 +32,16 @@ class CameraSignals:
         self.presence = 'unknown'
         self.faces = 0
         self.samples = deque(maxlen=150)
+        self.eye_samples = [deque(maxlen=150), deque(maxlen=150)]
+        self.eye_baselines = None
+        self.latest_opening = None
+        self.latest_ratio = None
+        self.recent_ratios = deque(maxlen=300)
+        self.session_blinks = 0
+        self.last_blink_at = None
+        self.blink_started_at = None
+        self.eye_phase = 'unknown'
+        self.fps = None
         self.calibration_start = None
         self.baseline = None
         self.closed_since = None
@@ -37,7 +49,7 @@ class CameraSignals:
         self.observations = deque()
         self.quality = 'warming'
 
-    def feed(self, now, faces, opening=None, person=None, away_after=10, return_after=2):
+    def feed(self, now, faces, opening=None, person=None, away_after=10, return_after=2, eyes=None):
         if self.last_frame is not None and now-self.last_frame > 2:
             self.reset()
         self.last_frame = now
@@ -58,19 +70,32 @@ class CameraSignals:
                 self.presence = 'away'
         if faces != 1 or opening is None or not math.isfinite(opening) or not 0 <= opening <= 1:
             self.quality = 'multiple_faces' if faces > 1 else 'eyes_unreliable' if person else 'no_person'
-            self.closed_since = None
+            # Face loss cancels the gesture, but one missing eye-landmark frame
+            # during an already detected closure must not erase a real blink.
+            if faces != 1 or self.closed_since is None or now-self.closed_since > .25:
+                self.closed_since = None
+            self.eye_phase = 'unknown'
+            self.latest_ratio = None
             self.last_eye = None
             return False
+        self.latest_opening = opening
         if len(self.frame_times) >= 5 and self.frame_times[-1]-self.frame_times[0] >= 1:
-            fps = (len(self.frame_times)-1)/(self.frame_times[-1]-self.frame_times[0])
-            if fps < 9.5:
+            self.fps = (len(self.frame_times)-1)/(self.frame_times[-1]-self.frame_times[0])
+            if self.fps < 9.5:
                 self.quality = 'low_fps'
                 self.closed_since = None
+                self.eye_phase = 'unknown'
+                self.latest_ratio = None
                 self.last_eye = None
                 return False
         if self.calibration_start is None:
             self.calibration_start = now
         self.samples.append(opening)
+        valid_eyes = (isinstance(eyes, (tuple, list)) and len(eyes) == 2
+                      and all(isinstance(value, (float, int)) and math.isfinite(value) and 0 <= value <= 1 for value in eyes))
+        if valid_eyes:
+            for samples, value in zip(self.eye_samples, eyes):
+                samples.append(value)
         if self.baseline is None:
             self.quality = 'calibrating'
             if len(self.samples) >= 30 and now-self.calibration_start >= 5:
@@ -78,6 +103,8 @@ class CameraSignals:
                 baseline = ordered[int((len(ordered)-1)*.85)]
                 if baseline >= .12:
                     self.baseline = baseline
+                    if all(len(samples) >= 30 for samples in self.eye_samples):
+                        self.eye_baselines = [sorted(samples)[int((len(samples)-1)*.85)] for samples in self.eye_samples]
                     self.quality = 'tracking'
             self.last_eye = now
             return False
@@ -87,22 +114,36 @@ class CameraSignals:
         self.observations.append((now, dt))
         self.total_observed += dt
         blink = False
-        if opening < self.baseline*.55:
+        # Each eye has its own open-eye baseline; asymmetric natural eye sizes
+        # no longer mask closure. A wink alone still cannot count as a blink.
+        ratio = max(value/base for value, base in zip(eyes, self.eye_baselines)) if valid_eyes and self.eye_baselines and min(self.eye_baselines) > .05 else opening/self.baseline
+        self.latest_ratio = ratio
+        self.recent_ratios.append((now, ratio))
+        if ratio < .60:
+            self.eye_phase = 'closed'
             if self.closed_since is None:
                 self.closed_since = now
-        elif opening > self.baseline*.75:
+        elif ratio > .75:
+            self.eye_phase = 'open'
             if self.closed_since is not None:
                 duration = now-self.closed_since
-                if .06 <= duration <= .7:
+                if .025 <= duration <= .8:
                     self.blinks.append(now)
                     self.total_blinks += 1
+                    self.session_blinks += 1
+                    self.last_blink_at = now
+                    self.blink_started_at = self.closed_since
                     blink = True
                 self.closed_since = None
-            # Slow adaptation to natural changes in position; closed eyes never
-            # lower the baseline, and a wink alone cannot count as a blink.
+            # Track the recent open-eye upper percentile after reopening. A
+            # wider initial calibration must not keep subsequent blinks merged.
             ordered = sorted(self.samples)
             candidate = ordered[int((len(ordered)-1)*.85)]
-            self.baseline = .995*self.baseline + .005*candidate
+            self.baseline = .98*self.baseline + .02*candidate
+            if valid_eyes and self.eye_baselines:
+                for index, samples in enumerate(self.eye_samples):
+                    candidate_eye = sorted(samples)[int((len(samples)-1)*.85)]
+                    self.eye_baselines[index] = .98*self.eye_baselines[index] + .02*candidate_eye
         return blink
 
     def snapshot(self, now, target=12):
@@ -110,6 +151,8 @@ class CameraSignals:
             self.blinks.popleft()
         while self.observations and self.observations[0][0] < now-60:
             self.observations.popleft()
+        while self.recent_ratios and self.recent_ratios[0][0] < now-10:
+            self.recent_ratios.popleft()
         fresh = self.last_frame is not None and 0 <= now-self.last_frame <= 3
         observed = sum(dt for _, dt in self.observations)
         rate = round(len(self.blinks)*60/observed, 1) if fresh and self.quality == 'tracking' and observed >= 50 else None
@@ -118,7 +161,11 @@ class CameraSignals:
                     target=target, below_target=rate is not None and rate < target,
                     today_blinks=self.total_blinks, today_observed_seconds=round(self.total_observed, 1),
                     baseline=round(self.baseline, 3) if self.baseline else None,
-                    last_frame=self.last_frame, missing_since=self.missing_since)
+                    last_frame=self.last_frame, missing_since=self.missing_since,
+                    session_blinks=self.session_blinks, last_blink_at=self.last_blink_at,
+                    eye_phase=self.eye_phase if fresh else 'unknown', fps=round(self.fps, 1) if self.fps and fresh else None,
+                    eye_ratio=round(self.latest_ratio, 2) if self.latest_ratio is not None and fresh else None,
+                    recent_min_ratio=round(min(ratio for _, ratio in self.recent_ratios), 2) if fresh and self.recent_ratios else None)
 
 
 _BUILD_LOCK = threading.Lock()
@@ -189,10 +236,13 @@ class CameraService:
         self.error = ''
         self.device = ''
         self.last_blink_reminder = 0
+        self.diagnostic_frames = deque(maxlen=900)
+        self.comparison = BlinkComparison()
         self.streaming_since = None
         self.last_save = 0
         self.wanted = None
         self.history_file = self.root/'camera-history.json'
+        self.blink_history = BlinkHistory(self.root/'blink-history.sqlite3')
         try:
             self.history = json.loads(self.history_file.read_text()) if self.history_file.exists() else {}
             if not isinstance(self.history, dict):
@@ -217,6 +267,7 @@ class CameraService:
             generation = self.generation
             self._stop_process()
             self.signals.reset()
+            self.diagnostic_frames.clear()
             self.error = ''
             self.status = 'starting' if wanted[0] else 'outside_hours' if not allowed and (settings.get('camera_blink_enabled') or settings.get('camera_away_enabled')) else 'disabled'
             if wanted[0]:
@@ -263,8 +314,19 @@ class CameraService:
                 self.signals.day = day
                 self.signals.total_blinks = self.signals.total_observed = 0
                 self.signals.reset()
-            self.signals.feed(now, int(data.get('faces', 0)), data.get('opening'), data.get('person'),
-                                      self.settings.get('camera_away_seconds', 10))
+            before_blinks, before_observed = self.signals.total_blinks, self.signals.total_observed
+            blink = self.signals.feed(now, int(data.get('faces', 0)), data.get('opening'), data.get('person'),
+                                      self.settings.get('camera_away_seconds', 10), eyes=[data.get('left_opening'), data.get('right_opening')])
+            self.comparison.observe(now, blink, self.signals.blink_started_at if blink else None, self.signals.quality)
+            if self.settings.get('camera_blink_enabled'):
+                self.diagnostic_frames.append(dict(time=now, quality=self.signals.quality,
+                    opening=data.get('opening'), left=data.get('left_opening'), right=data.get('right_opening'),
+                    eye_baselines=list(self.signals.eye_baselines) if self.signals.eye_baselines else None,
+                    ratio=self.signals.latest_ratio, phase=self.signals.eye_phase, blink=bool(blink),
+                    blink_started_at=self.signals.blink_started_at if blink else None))
+                self.blink_history.record(now, self.signals.total_blinks-before_blinks,
+                                          self.signals.total_observed-before_observed,
+                                          self.settings.get('camera_blink_target', 12))
             if now-self.last_save >= 60:
                 self._save()
         else:
@@ -281,7 +343,7 @@ class CameraService:
         with self.lock:
             now = time.time()
             state = self.snapshot()
-            if (not allowed or not self.settings.get('camera_blink_enabled')
+            if (not allowed or self.comparison.active(now) or not self.settings.get('camera_blink_enabled')
                     or state['status'] != 'running' or state['presence'] != 'present'
                     or not state['below_target'] or now-self.last_blink_reminder < 300):
                 return None
@@ -293,12 +355,41 @@ class CameraService:
             self.last_blink_reminder = time.time()
 
     def _save(self):
+        self.blink_history.flush()
         self.history[self.signals.day] = dict(blinks=self.signals.total_blinks, observed_seconds=round(self.signals.total_observed, 1))
         self.root.mkdir(parents=True, exist_ok=True)
         temp = self.history_file.with_suffix('.tmp')
         temp.write_text(json.dumps(self.history, ensure_ascii=False, indent=2))
         temp.replace(self.history_file)
         self.last_save = time.time()
+
+    def start_comparison(self):
+        with self.lock:
+            state = self.snapshot()
+            if not self.settings.get('camera_blink_enabled') or state['status'] != 'running' or state['quality'] != 'tracking':
+                raise ValueError('请先开启眨眼检测，并自然睁眼完成校准')
+            return self.comparison.start(time.time())
+
+    def submit_comparison(self, count):
+        with self.lock:
+            return self.comparison.submit(time.time(), count)
+
+    def diagnostics(self):
+        """A bounded in-memory signal trace for supervised local comparison tests."""
+        with self.lock:
+            now = time.time()
+            return {'frames': [frame.copy() for frame in self.diagnostic_frames if now-frame['time'] <= 30],
+                    'status': self.status, 'session_blinks': self.signals.session_blinks}
+
+    def blink_details(self, selected_date=None, page=1):
+        with self.lock:
+            result = self.blink_history.read(selected_date, page)
+            if result['date'] == self.signals.day:
+                result['daily_total'] = {'blinks': self.signals.total_blinks,
+                                         'observed_seconds': round(self.signals.total_observed, 1)}
+            else:
+                result['daily_total'] = self.history.get(result['date'], {'blinks': 0, 'observed_seconds': 0})
+            return result
 
     def list_devices(self):
         executable = build_camera_helper(self.root, self.source_root)
@@ -315,6 +406,7 @@ class CameraService:
     def recalibrate(self):
         with self.lock:
             self.signals.reset()
+            self.diagnostic_frames.clear()
 
     def snapshot(self):
         with self.lock:
@@ -325,7 +417,7 @@ class CameraService:
                 status, error = 'error', '摄像头没有新画面，自动暂停已解除；请检查设备是否被其他应用占用'
             return {**state, 'status': status, 'error': error, 'device': self.device,
                     'settings': {key: value for key, value in self.settings.items() if key.startswith('camera_')},
-                    'history': dict(self.history)}
+                    'history': dict(self.history), 'comparison': self.comparison.snapshot(now)}
 
     def _stop_process(self):
         if self.process and self.process.poll() is None:

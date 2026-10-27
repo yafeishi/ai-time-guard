@@ -939,6 +939,22 @@ class ReportHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         global _app_instance
+        if urlparse(self.path).path == '/api/camera/diagnostics':
+            if _app_instance and hasattr(_app_instance, 'camera'):
+                self.send_json_response(_app_instance.camera.diagnostics())
+            else:
+                self.send_json_response({'error': '应用未运行'}, status=503)
+            return
+        if urlparse(self.path).path == '/api/camera/history':
+            if not _app_instance or not hasattr(_app_instance, 'camera'):
+                self.send_json_response({'error': '应用未运行'}, status=503)
+                return
+            try:
+                query = parse_qs(urlparse(self.path).query)
+                self.send_json_response(_app_instance.camera.blink_details(query.get('date', [None])[0], query.get('page', [1])[0]))
+            except (ValueError, OverflowError):
+                self.send_json_response({'error': '日期或页码无效'}, status=400)
+            return
         if urlparse(self.path).path == '/api/camera':
             if _app_instance and hasattr(_app_instance, 'camera'):
                 self.send_json_response(_app_instance.camera.snapshot())
@@ -1167,6 +1183,25 @@ class ReportHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         global _app_instance
+        if self.path in ('/api/camera/test/start', '/api/camera/test/result'):
+            try:
+                if not _app_instance or not hasattr(_app_instance, 'camera'):
+                    raise ValueError('应用未运行')
+                if self.path.endswith('/start'):
+                    result = _app_instance.camera.start_comparison()
+                    _app_instance.focus_until = max(getattr(_app_instance, 'focus_until', 0), result['end_at'])
+                else:
+                    size = int(self.headers.get('Content-Length', 0))
+                    if not 0 < size <= 1024:
+                        raise ValueError('请求大小无效')
+                    data = json.loads(self.rfile.read(size))
+                    if not isinstance(data, dict):
+                        raise ValueError('请填写次数')
+                    result = _app_instance.camera.submit_comparison(data.get('count'))
+                self.send_json_response(result)
+            except (ValueError, TypeError) as exc:
+                self.send_json_response({'error': str(exc)}, status=400)
+            return
         if self.path in ('/api/camera/config', '/api/camera/recalibrate', '/api/camera/devices'):
             try:
                 if not _app_instance or not hasattr(_app_instance, 'camera'):
