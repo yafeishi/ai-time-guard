@@ -55,6 +55,7 @@ class CameraMenuTests(unittest.TestCase):
 
     def test_blink_reminder_uses_shared_modal_and_acknowledgement(self):
         from unittest.mock import Mock
+        self.app.camera.take_blink_exercise_reminder = Mock(return_value=None)
         self.app.camera.take_blink_reminder = Mock(return_value={'blink_rate': 6, 'target': 12})
         self.app.camera.blink_reminder_dismissed = Mock()
         self.app.show_modal_alert = Mock()
@@ -78,3 +79,15 @@ class CameraMenuTests(unittest.TestCase):
             self.assertEqual(self.app.config['camera_away_system_lock'], item._away_mode == 'lock')
             self.assertEqual(self.app.config['camera_away_fullscreen'], item._away_mode == 'fullscreen')
             self.assertEqual(sum(bool(choice.state) for choice in self.app.camera_away_mode_items), 1)
+
+    def test_ten_low_minutes_offer_one_minute_exercise_instead_of_regular_alert(self):
+        from unittest.mock import Mock
+        self.app.camera.take_blink_exercise_reminder = Mock(return_value={'minutes':10,'target':12})
+        self.app.camera.take_blink_reminder = Mock()
+        self.app.camera.blink_reminder_dismissed = Mock()
+        self.app.show_modal_alert = Mock(return_value=1)
+        self.app.open_blink_exercise = Mock()
+        self.app.show_blink_reminder()
+        self.assertEqual(self.app.show_modal_alert.call_args.args[0], '一分钟专项眨眼')
+        self.app.open_blink_exercise.assert_called_once()
+        self.app.camera.take_blink_reminder.assert_not_called()

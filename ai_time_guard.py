@@ -1190,6 +1190,24 @@ class ReportHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         global _app_instance
+        if self.path.startswith('/api/camera/exercise/'):
+            try:
+                if not _app_instance or not hasattr(_app_instance, 'camera'):
+                    raise ValueError('应用未运行')
+                action = self.path.rsplit('/', 1)[-1]
+                if action == 'native':
+                    _app_instance.open_blink_exercise()
+                    result = {'success': True}
+                else:
+                    if action != 'cancel' and (_app_instance.secure_lock.blocking or not _app_instance.config.get('work_on_duty', True)):
+                        raise ValueError('锁屏或休息时段内不能进行练习')
+                    result = _app_instance.camera.exercise_command(action)
+                    if action in ('start', 'heartbeat'):
+                        _app_instance.focus_until = time.time()+3
+                self.send_json_response(result)
+            except (ValueError, RuntimeError, OSError) as exc:
+                self.send_json_response({'error': str(exc)}, status=400)
+            return
         if self.path in ('/api/camera/test/start', '/api/camera/test/result'):
             try:
                 if not _app_instance or not hasattr(_app_instance, 'camera'):
@@ -1873,6 +1891,7 @@ class AITimeGuardApp(rumps.App):
         self.camera_rate_item = rumps.MenuItem("近期频率：等待有效画面")
         self.camera_today_item = rumps.MenuItem("今日：0 次 · 有效检测 0 分钟")
         self.camera_week_item = rumps.MenuItem("近 7 天：0 次")
+        self.camera_exercise_item = rumps.MenuItem("连续偏低 0 / 10 分钟 · 今日练习 0 次")
         self.camera_presence_item = rumps.MenuItem("在座状态：未知")
         self.camera_security_item = rumps.MenuItem("屏幕保护：全屏休息展示")
         self.camera_blink_item = rumps.MenuItem("启用眨眼检测", callback=self.toggle_camera_setting)
@@ -1901,9 +1920,10 @@ class AITimeGuardApp(rumps.App):
             delay_menu.add(item)
             self.camera_delay_items.append(item)
         for item in [self.camera_status_item, self.camera_rate_item, self.camera_today_item,
-                     self.camera_week_item, self.camera_presence_item, self.camera_security_item, rumps.separator,
+                     self.camera_week_item, self.camera_exercise_item, self.camera_presence_item, self.camera_security_item, rumps.separator,
                      self.camera_blink_item, self.camera_away_item, self.camera_away_mode_menu, target_menu, delay_menu,
                      rumps.MenuItem("重新校准", callback=self.recalibrate_camera),
+                     rumps.MenuItem("开始 1 分钟眨眼练习", callback=self.manual_blink_exercise),
                      rumps.MenuItem("详细设置与统计…", callback=self.open_camera_settings)]:
             self.camera_menu.add(item)
         self.update_camera_menu(self.camera.snapshot())
@@ -1960,6 +1980,7 @@ class AITimeGuardApp(rumps.App):
         total = state['today_blinks'] + sum(value.get('blinks', 0) for day, value in state.get('history', {}).items()
                                               if day in days and day != str(today))
         self.camera_week_item.title = f"近 7 天：{total} 次（有效画面内检测）"
+        self.camera_exercise_item.title = f"连续偏低 {state.get('low_blink_minutes', 0)} / 10 分钟 · 今日练习 {state.get('today_exercises', 0)} 次"
         presence = {'present': '在座', 'away': '离座', 'unknown': '未知'}.get(state['presence'], '未知')
         self.camera_presence_item.title = '在座状态：' + presence
         self.camera_blink_item.state = blink_enabled
@@ -1973,20 +1994,48 @@ class AITimeGuardApp(rumps.App):
         for item in self.camera_target_items + self.camera_delay_items:
             item.state = self.config.get(item._camera_key) == item._camera_value
 
+    def manual_blink_exercise(self, _):
+        try:
+            self.open_blink_exercise()
+        except (ValueError, OSError) as exc:
+            self.show_modal_alert('无法开始练习', str(exc))
+
+    def open_blink_exercise(self):
+        if not self.config.get('work_on_duty', True) or self.secure_lock.blocking:
+            raise ValueError('锁屏或休息时段内不能进行练习')
+        state = self.camera.snapshot()
+        if not self.config.get('camera_blink_enabled') or state['status'] != 'running' or state['presence'] != 'present':
+            raise ValueError('请先开启眨眼检测并确认在座')
+        process = getattr(self, 'native_focus_process', None)
+        if process is not None and process.poll() is None:
+            raise ValueError('请先结束当前全屏专注')
+        self.native_focus_process = subprocess.Popen([sys.executable, str(APP_DIR/'native_focus.py'), '--blink-minute'])
+
     def show_blink_reminder(self, allowed=True):
         if getattr(self, '_blink_alert_open', False):
             return
-        state = self.camera.take_blink_reminder(allowed=allowed and self.config.get('work_on_duty', True)
-                                                and time.time() >= getattr(self, 'focus_until', 0))
-        if state is None:
+        allowed = allowed and self.config.get('work_on_duty', True) and time.time() >= getattr(self, 'focus_until', 0)
+        exercise = self.camera.take_blink_exercise_reminder(allowed=allowed)
+        state = None if exercise else self.camera.take_blink_reminder(allowed=allowed)
+        if state is None and exercise is None:
             return
         self._blink_alert_open = True
         try:
-            self.show_modal_alert('眨眼提醒',
-                f"近期眨眼频率约 {state['blink_rate']:g} 次／分钟，低于你设置的 {state['target']} 次／分钟。\n请停一下，自然、轻柔地眨几次眼，放松一下。",
-                ok='知道了')
+            if exercise:
+                result = self.show_modal_alert('一分钟专项眨眼',
+                    f"连续 10 个有效检测分钟的眨眼频率都低于你设置的 {exercise['target']} 次／分钟。\n现在做一分钟眨眼练习，暂时放下手头的事情。",
+                    ok='开始 1 分钟练习', cancel='稍后')
+                if result == 1:
+                    try:
+                        self.open_blink_exercise()
+                    except (ValueError, OSError) as exc:
+                        self.show_modal_alert('无法开始练习', str(exc))
+            else:
+                self.show_modal_alert('眨眼提醒',
+                    f"近期眨眼频率约 {state['blink_rate']:g} 次／分钟，低于你设置的 {state['target']} 次／分钟。\n请停一下，自然、轻柔地眨几次眼，放松一下。",
+                    ok='知道了')
         finally:
-            self.camera.blink_reminder_dismissed()
+            self.camera.blink_reminder_dismissed(exercise=bool(exercise))
             self._blink_alert_open = False
 
     def perform_event_action(self, event_id, action):

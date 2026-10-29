@@ -1,6 +1,7 @@
 """Camera signal processing and native capture lifecycle. No images enter Python."""
 from blink_history import BlinkHistory
 from blink_comparison import BlinkComparison
+from blink_training import LowBlinkStreak, BlinkExercise
 from collections import deque
 from datetime import datetime
 import hashlib
@@ -238,6 +239,8 @@ class CameraService:
         self.last_blink_reminder = 0
         self.diagnostic_frames = deque(maxlen=900)
         self.comparison = BlinkComparison()
+        self.low_blink = LowBlinkStreak()
+        self.exercise = BlinkExercise()
         self.streaming_since = None
         self.last_save = 0
         self.wanted = None
@@ -252,12 +255,16 @@ class CameraService:
         day = self.history.get(self.signals.day, {})
         self.signals.total_blinks = day.get('blinks', 0)
         self.signals.total_observed = day.get('observed_seconds', 0)
+        self.exercise_count = day.get('blink_exercises', 0)
 
     def configure(self, settings, allowed=True):
         wanted = (bool(settings.get('camera_blink_enabled') or settings.get('camera_away_enabled')) and allowed,
                   settings.get('camera_device_id', ''), bool(settings.get('camera_blink_enabled')))
         with self.lock:
             self.settings = dict(settings)
+            if not settings.get('camera_blink_enabled') or not allowed:
+                self.low_blink.reset()
+                self.exercise.cancel()
             if wanted == self.wanted:
                 return
             if self.process:
@@ -268,6 +275,8 @@ class CameraService:
             self._stop_process()
             self.signals.reset()
             self.diagnostic_frames.clear()
+            self.low_blink.reset()
+            self.exercise.cancel()
             self.error = ''
             self.status = 'starting' if wanted[0] else 'outside_hours' if not allowed and (settings.get('camera_blink_enabled') or settings.get('camera_away_enabled')) else 'disabled'
             if wanted[0]:
@@ -313,10 +322,15 @@ class CameraService:
                 self._save()
                 self.signals.day = day
                 self.signals.total_blinks = self.signals.total_observed = 0
+                self.exercise_count = 0
                 self.signals.reset()
             before_blinks, before_observed = self.signals.total_blinks, self.signals.total_observed
             blink = self.signals.feed(now, int(data.get('faces', 0)), data.get('opening'), data.get('person'),
                                       self.settings.get('camera_away_seconds', 10), eyes=[data.get('left_opening'), data.get('right_opening')])
+            self.low_blink.observe(now, self.signals.total_blinks-before_blinks,
+                self.signals.total_observed-before_observed, self.settings.get('camera_blink_target', 12),
+                tracking=self.signals.quality == 'tracking', present=True if self.signals.presence == 'present' else None,
+                enabled=bool(self.settings.get('camera_blink_enabled')) and not self.comparison.active(now) and not self.exercise.active(now))
             self.comparison.observe(now, blink, self.signals.blink_started_at if blink else None, self.signals.quality)
             if self.settings.get('camera_blink_enabled'):
                 self.diagnostic_frames.append(dict(time=now, quality=self.signals.quality,
@@ -337,26 +351,68 @@ class CameraService:
             self.device = data.get('device', self.device)
             if self.status in ('denied', 'error'):
                 self.signals.reset()
+                self.low_blink.reset()
+                self.exercise.cancel()
 
     def take_blink_reminder(self, allowed=True):
         """Main UI thread consumes a current low-rate condition, never a stale queue."""
         with self.lock:
             now = time.time()
             state = self.snapshot()
-            if (not allowed or self.comparison.active(now) or not self.settings.get('camera_blink_enabled')
+            if (not allowed or self.comparison.active(now) or self.exercise.active(now) or not self.settings.get('camera_blink_enabled')
                     or state['status'] != 'running' or state['presence'] != 'present'
                     or not state['below_target'] or now-self.last_blink_reminder < 300):
                 return None
             self.last_blink_reminder = now
             return state
 
-    def blink_reminder_dismissed(self):
+    def take_blink_exercise_reminder(self, allowed=True):
+        with self.lock:
+            now = time.time()
+            state = self.snapshot()
+            valid = (allowed and self.settings.get('camera_blink_enabled') and state['status'] == 'running'
+                     and state['quality'] == 'tracking' and state['presence'] == 'present'
+                     and not self.comparison.active(now) and not self.exercise.active(now))
+            result = self.low_blink.take(valid)
+            if result:
+                self.last_blink_reminder = now
+            return result
+
+    def exercise_command(self, action):
+        with self.lock:
+            now = time.time()
+            state = self.snapshot()
+            available = (self.settings.get('camera_blink_enabled') and state['status'] == 'running'
+                         and state['presence'] == 'present')
+            if action == 'start':
+                if not available:
+                    raise ValueError('请先开启眨眼检测并确认在座')
+                if self.comparison.active(now):
+                    raise ValueError('请先完成当前的 10 秒对照测试')
+                result = self.exercise.start(now)
+                self.low_blink.reset()
+            elif action == 'heartbeat':
+                result = self.exercise.heartbeat(now, available)
+            elif action == 'finish':
+                result = self.exercise.finish(now, available)
+                self.exercise_count += 1
+                self._save()
+            elif action == 'cancel':
+                self.exercise.cancel()
+                result = self.exercise.snapshot(now)
+            else:
+                raise ValueError('未知练习操作')
+            return result
+
+    def blink_reminder_dismissed(self, exercise=False):
         with self.lock:
             self.last_blink_reminder = time.time()
+            if exercise:
+                self.low_blink.reset()
 
     def _save(self):
         self.blink_history.flush()
-        self.history[self.signals.day] = dict(blinks=self.signals.total_blinks, observed_seconds=round(self.signals.total_observed, 1))
+        self.history[self.signals.day] = dict(blinks=self.signals.total_blinks, observed_seconds=round(self.signals.total_observed, 1), blink_exercises=self.exercise_count)
         self.root.mkdir(parents=True, exist_ok=True)
         temp = self.history_file.with_suffix('.tmp')
         temp.write_text(json.dumps(self.history, ensure_ascii=False, indent=2))
@@ -368,6 +424,9 @@ class CameraService:
             state = self.snapshot()
             if not self.settings.get('camera_blink_enabled') or state['status'] != 'running' or state['quality'] != 'tracking':
                 raise ValueError('请先开启眨眼检测，并自然睁眼完成校准')
+            if self.exercise.active(time.time()):
+                raise ValueError('请先完成一分钟眨眼练习')
+            self.low_blink.reset()
             return self.comparison.start(time.time())
 
     def submit_comparison(self, count):
@@ -407,6 +466,7 @@ class CameraService:
         with self.lock:
             self.signals.reset()
             self.diagnostic_frames.clear()
+            self.low_blink.reset()
 
     def snapshot(self):
         with self.lock:
@@ -415,9 +475,13 @@ class CameraService:
             status, error = self.status, self.error
             if status == 'running' and ((state['last_frame'] is not None and now-state['last_frame'] > 3) or (state['last_frame'] is None and self.streaming_since is not None and now-self.streaming_since > 8)):
                 status, error = 'error', '摄像头没有新画面，自动暂停已解除；请检查设备是否被其他应用占用'
+            if status != 'running' or state['presence'] == 'away':
+                self.low_blink.reset()
             return {**state, 'status': status, 'error': error, 'device': self.device,
                     'settings': {key: value for key, value in self.settings.items() if key.startswith('camera_')},
-                    'history': dict(self.history), 'comparison': self.comparison.snapshot(now)}
+                    'history': dict(self.history), 'comparison': self.comparison.snapshot(now),
+                    'low_blink_minutes': self.low_blink.minutes, 'exercise_pending': self.low_blink.pending,
+                    'exercise': self.exercise.snapshot(now), 'today_exercises': self.exercise_count}
 
     def _stop_process(self):
         if self.process and self.process.poll() is None:

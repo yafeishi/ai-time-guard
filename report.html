@@ -1082,6 +1082,8 @@
     <div><span>在座状态</span><strong id="cameraPresence">—</strong><small id="cameraPresenceHelp">连续离座后自动暂停，回来继续计时</small></div>
   </div>
   <p class="editor-help" id="cameraLiveTest" aria-live="polite"></p>
+  <p class="editor-help" id="cameraExerciseStatus" aria-live="polite"></p>
+  <p class="editor-help">连续 10 个一分钟窗口频率低于目标时，弹窗建议做一分钟专项眨眼。每分钟至少需 50 秒有效检测；达标、离座、锁屏或检测中断会重新累计。练习结束或选择稍后后，需要重新累计 10 个偏低分钟才再次提醒。</p>
   <p class="editor-help" id="cameraQuality"></p><p id="cameraError" class="event-feedback" role="status"></p>
   <form id="cameraForm">
     <div class="camera-options">
@@ -1098,7 +1100,7 @@
       <label for="cameraAwayDelay">离座确认时间<div class="input-unit"><input type="number" min="3" max="120" value="10" id="cameraAwayDelay"><span>秒</span></div></label>
       <label for="cameraDevice">使用摄像头<select id="cameraDevice"><option value="">系统默认摄像头</option></select></label>
     </div>
-    <div class="camera-actions"><button type="submit" class="event-button primary" id="cameraSave">应用设置</button><button type="button" class="event-button" id="cameraCalibrate">重新校准</button><button type="button" class="event-button" id="cameraDevices">刷新摄像头列表</button></div>
+    <div class="camera-actions"><button type="submit" class="event-button primary" id="cameraSave">应用设置</button><button type="button" class="event-button" id="cameraBlinkExercise">开始 1 分钟练习</button><button type="button" class="event-button" id="cameraCalibrate">重新校准</button><button type="button" class="event-button" id="cameraDevices">刷新摄像头列表</button></div>
   </form>
   <p class="editor-help">首次启用请在 macOS 弹窗中允许 AI Time Guard Camera 使用摄像头。校准时自然睁眼面对摄像头约 5 秒。眼镜、光线和角度会影响检测；多人入镜时不统计眨眼，摄像头故障不会被当成离座。回座确认约 2 秒。</p>
   <p class="editor-help">站立的一分钟不受普通离座暂停影响；安全锁屏优先于专注展示。工作时段外会关闭摄像头。这里只提示频率是否达到你设置的目标，不判断医学标准或眨眼是否完全闭合。</p>
@@ -2965,6 +2967,7 @@ async function loadCamera() {
     document.getElementById('cameraLiveTest').textContent=settings.camera_blink_enabled&&data.status==='running'?`即时测试：本次校准后识别 ${data.session_blinks||0} 次 · 最近识别 ${lastBlink} · ${eyePhases[data.eye_phase]||'正在校准'} · ${data.fps??'—'} 帧/秒${data.eye_ratio==null?'':` · 开合比例 ${data.eye_ratio}（近期最低 ${data.recent_min_ratio}）`}`:'';
     const security=data.security||{},secure=settings.camera_away_system_lock&&settings.camera_away_enabled;
     document.getElementById('cameraSecurityStatus').textContent=security.error?security.error:secure?(security.pending||security.session==='locked'?'系统锁屏中，活动计时保持暂停，等待本账号认证解锁。':security.session==='unknown'?'无法确认系统会话状态，活动计时保持暂停。':'安全锁屏已开启'+(security.last_away_seconds!=null?` · 上次锁定约 ${Math.floor(security.last_away_seconds/60)} 分 ${security.last_away_seconds%60} 秒`:'')):'';
+    document.getElementById('cameraExerciseStatus').textContent=`连续偏低 ${data.low_blink_minutes||0} / 10 分钟 · 今日完成一分钟练习 ${data.today_exercises||0} 次${data.exercise?.phase==='running'?' · 练习进行中':''}`;
     document.getElementById('cameraError').textContent=data.error||'';
     document.getElementById('cameraRate').textContent=!settings.camera_blink_enabled?'未开启':data.blink_rate===null?'观察中':`${data.blink_rate} 次/分钟`;
     document.getElementById('cameraRateHelp').textContent=data.blink_rate===null?`有效观察 ${Math.round(data.observed_seconds||0)} / 50 秒 · 今日记录 ${data.today_blinks||0} 次眨眼`:`${data.below_target?'低于设定目标':'已达到设定目标'} ${data.target} 次/分钟 · 今日 ${data.today_blinks} 次`;
@@ -2988,6 +2991,7 @@ document.getElementById('cameraForm').onsubmit=async event=>{
   catch(error){document.getElementById('cameraError').textContent=error.message;}
   finally{cameraSaving=false;button.disabled=false;}
 };
+document.getElementById('cameraBlinkExercise').onclick=async()=>{try{await cameraRequest('exercise/native');}catch(error){document.getElementById('cameraError').textContent=error.message;}};
 document.getElementById('cameraCalibrate').onclick=async()=>{try{await cameraRequest('recalibrate');await loadCamera();}catch(error){document.getElementById('cameraError').textContent=error.message;}};
 if(['#cameraPanel','#blinkComparisonPanel'].includes(location.hash)) document.getElementById('cameraPanel').open = true;
 if(location.hash==='#blinkComparisonPanel')requestAnimationFrame(()=>document.getElementById('blinkComparisonPanel').scrollIntoView());

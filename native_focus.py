@@ -17,7 +17,8 @@ from AppKit import (
 
 BASE = 'http://127.0.0.1:19527'
 AWAY_MODE = '--away' in sys.argv
-EVENT_ID = None if AWAY_MODE else sys.argv[1]
+BLINK_MINUTE = '--blink-minute' in sys.argv
+EVENT_ID = None if AWAY_MODE or BLINK_MINUTE else sys.argv[1]
 SHOULD_CLOSE = False
 
 
@@ -29,6 +30,12 @@ def request_close(signum, frame):
 if AWAY_MODE:
     signal.signal(signal.SIGTERM, request_close)
 STANDING_MINUTE = '--standing-minute' in sys.argv
+
+
+def blink_exercise_command(action):
+    request = urllib.request.Request(BASE+'/api/camera/exercise/'+action, data=b'{}', headers={'Content-Type': 'application/json'})
+    with urllib.request.urlopen(request, timeout=2) as response:
+        return json.load(response)
 
 
 def command(action):
@@ -68,6 +75,9 @@ class FocusController(NSObject):
         if AWAY_MODE:
             self.start_away_screen()
             return
+        if BLINK_MINUTE:
+            self.start_blink_screen()
+            return
         self.previous = NSWorkspace.sharedWorkspace().frontmostApplication()
         self.active = False
         self.finished = False
@@ -106,6 +116,56 @@ class FocusController(NSObject):
             self.status.setHidden_(False)
             self.status.setStringValue_('无法开始：' + str(exc))
         self.timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(1, self, 'tick:', None, True)
+
+    @objc.python_method
+    def start_blink_screen(self):
+        self.previous = NSWorkspace.sharedWorkspace().frontmostApplication()
+        self.closing = False
+        self.blink_finished = False
+        screen = NSScreen.mainScreen()
+        frame = screen.frame()
+        width, height = frame.size.width, frame.size.height
+        self.window = FocusWindow.alloc().initWithContentRect_styleMask_backing_defer_(frame, NSWindowStyleMaskBorderless, NSBackingStoreBuffered, False)
+        self.window.focusController = self
+        self.window.setReleasedWhenClosed_(False)
+        self.window.setLevel_(NSStatusWindowLevel+1)
+        self.window.setCollectionBehavior_(NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary)
+        self.window.setBackgroundColor_(NSColor.colorWithCalibratedRed_green_blue_alpha_(0.035, 0.05, 0.095, 1))
+        self.label_('一分钟专项眨眼', (0, height*.70, width, 70), 36)
+        self.clock = self.label_('01:00', (0, height*.35, width, height*.30), min(180, width*.15))
+        self.label_('自然、轻柔地眨眼，不用刻意加快或用力挤眼', (0, height*.28, width, 60), 20)
+        self.status = self.label_('暂时放下手头的事情', (0, height*.20, width, 50), 16)
+        self.button_('退出 · Esc', (width-240, height-80, 210, 44), 'exit:')
+        try:
+            self.blink_exercise = blink_exercise_command('start')
+        except Exception:
+            self.clock.setStringValue_('未开始')
+            self.status.setStringValue_('当前无法开始，请按 Esc 退出后检查检测状态')
+            self.blink_finished = True
+        app = NSApplication.sharedApplication()
+        app.setPresentationOptions_(NSApplicationPresentationAutoHideDock | NSApplicationPresentationAutoHideMenuBar)
+        self.window.makeKeyAndOrderFront_(None)
+        app.activateIgnoringOtherApps_(True)
+        self.timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(1, self, 'tick:', None, True)
+
+    @objc.python_method
+    def tick_blink_screen(self):
+        if self.blink_finished:
+            if getattr(self, "blink_completed_at", None) and time.time()-self.blink_completed_at >= 2:
+                self.exit_(None)
+            return
+        try:
+            state = blink_exercise_command('heartbeat')
+            remaining = max(0, int(state['end_at']-time.time()+.999))
+            self.clock.setStringValue_(f'{remaining//60:02d}:{remaining%60:02d}')
+            if remaining == 0:
+                blink_exercise_command('finish')
+                self.blink_finished = True
+                self.clock.setStringValue_('完成')
+                self.blink_completed_at = time.time()
+                self.status.setStringValue_('一分钟练习已结束，即将返回')
+        except Exception:
+            self.exit_(None)
 
     @objc.python_method
     def start_away_screen(self):
@@ -210,6 +270,9 @@ class FocusController(NSObject):
             self.status.setStringValue_('操作失败：' + str(exc))
 
     def tick_(self, timer):
+        if BLINK_MINUTE:
+            self.tick_blink_screen()
+            return
         if AWAY_MODE:
             self.tick_away_screen()
             return
@@ -266,6 +329,24 @@ class FocusController(NSObject):
             self.exit_(None)
 
     def exit_(self, sender):
+        if BLINK_MINUTE:
+            if self.closing:
+                return
+            self.closing = True
+            if hasattr(self, 'timer'):
+                self.timer.invalidate()
+            try:
+                blink_exercise_command('cancel')
+            except Exception:
+                pass
+            app = NSApplication.sharedApplication()
+            restore = app.isActive()
+            self.window.orderOut_(None)
+            app.setPresentationOptions_(0)
+            if restore and self.previous:
+                self.previous.activateWithOptions_(0)
+            app.terminate_(None)
+            return
         if AWAY_MODE:
             if self.closing:
                 return
